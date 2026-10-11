@@ -1,0 +1,384 @@
+<Window x:Class="AIUsage.App.SettingsWindow"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:AIUsage.App"
+ Title="AI SA · 설정" Icon="Assets/AISA.ico" Style="{StaticResource {x:Type Window}}"
+ Width="780" Height="720" MinWidth="680" MinHeight="560"
+ WindowStartupLocation="CenterScreen" ShowInTaskbar="True" UseLayoutRounding="True">
+ <Window.Resources>
+  <ResourceDictionary>
+   <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="Styles/SettingsControls.xaml" />
+   </ResourceDictionary.MergedDictionaries>
+  </ResourceDictionary>
+ </Window.Resources>
+ <Grid Margin="28,24,28,18" Background="{DynamicResource CanvasBrush}">
+  <Grid.RowDefinitions>
+   <RowDefinition Height="Auto" />
+   <RowDefinition Height="Auto" />
+   <RowDefinition Height="*" />
+   <RowDefinition Height="Auto" />
+  </Grid.RowDefinitions>
+  <Grid Margin="0,0,0,22">
+   <TextBlock Text="설정" FontSize="23" FontWeight="SemiBold" VerticalAlignment="Center" />
+   <Button Content="위젯 열기" Style="{StaticResource SettingsGhostButton}" HorizontalAlignment="Right" Click="OpenWidget" />
+  </Grid>
+  <Border Grid.Row="1" BorderBrush="{DynamicResource WarningBrush}" BorderThickness="2,0,0,0" Padding="10,5" Margin="0,0,0,14"
+   Visibility="{Binding HasError, Converter={StaticResource BoolVisibility}}">
+   <TextBlock Text="{Binding Error}" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap" FontSize="12" />
+  </Border>
+  <TabControl x:Name="SettingsTabs" Grid.Row="2" Style="{StaticResource SettingsTabControl}" SelectedIndex="0">
+   <TabItem Header="계정" Style="{StaticResource SettingsTabItem}">
+    <ScrollViewer Padding="0,0,12,0" HorizontalScrollBarVisibility="Disabled">
+     <StackPanel>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,0,0,14">
+       <Expander x:Name="AddAccountExpander" Header="계정 추가" Style="{StaticResource SettingsExpander}">
+        <StackPanel>
+         <Grid>
+          <Grid.ColumnDefinitions>
+           <ColumnDefinition Width="150" /><ColumnDefinition Width="12" />
+           <ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+          <TextBlock Text="서비스" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,6" />
+          <TextBlock Grid.Column="2" Text="별칭" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,0,0,6" />
+          <ComboBox x:Name="ProviderChoice" Grid.Row="1" SelectedIndex="0" AutomationProperties.Name="추가할 서비스">
+           <ComboBoxItem Content="Claude" /><ComboBoxItem Content="Codex" /><ComboBoxItem Content="Antigravity" />
+          </ComboBox>
+          <TextBox x:Name="NewAlias" Grid.Row="1" Grid.Column="2" Text="개인" MaxLength="40"
+           ToolTip="위젯에 표시할 이름" AutomationProperties.Name="새 계정 별칭" />
+          <Button x:Name="AddButton" Grid.Row="1" Grid.Column="4" Content="연결" MinWidth="76"
+           Style="{StaticResource SettingsPrimaryButton}" Click="AddAccount" AutomationProperties.Name="계정 추가 및 연결" />
+         </Grid>
+         <TextBlock Text="Antigravity는 현재 로그인한 계정 1개를 지원합니다." Foreground="{DynamicResource MutedBrush}"
+          FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0" />
+        </StackPanel>
+       </Expander>
+      </Border>
+      <Grid Margin="0,14,0,0">
+       <TextBlock Text="{Binding AccountCount}" Foreground="{DynamicResource MutedBrush}" FontSize="11" VerticalAlignment="Center" />
+       <Button Content="전체 새로고침" Style="{StaticResource SettingsGhostButton}" Command="{Binding RefreshAllCommand}" HorizontalAlignment="Right" />
+      </Grid>
+      <ItemsControl ItemsSource="{Binding Accounts}">
+       <ItemsControl.ItemTemplate>
+        <DataTemplate>
+         <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,18,0,18">
+          <StackPanel>
+           <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+            <Path Data="{Binding IconGeometry}" Fill="{DynamicResource TextBrush}" Width="18" Height="18" Stretch="Uniform" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="2" Margin="0,0,12,0" VerticalAlignment="Center">
+             <WrapPanel>
+              <TextBlock Text="{Binding ProviderName}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+              <TextBlock Text="{Binding Alias}" FontSize="12" Foreground="{DynamicResource MutedBrush}" MaxWidth="180"
+               TextTrimming="CharacterEllipsis" ToolTip="{Binding Alias}" Margin="9,1,0,0" VerticalAlignment="Center" />
+             </WrapPanel>
+             <Grid Margin="0,5,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <TextBlock Text="{Binding Identity}" FontSize="11" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Identity}" />
+              <TextBlock Grid.Column="1" Text="{Binding Plan}" FontSize="11" Foreground="{DynamicResource SubtleBrush}" MaxWidth="130" TextTrimming="CharacterEllipsis" Margin="12,0,0,0" />
+             </Grid>
+            </StackPanel>
+            <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+             <Button Content="연결" Style="{StaticResource SettingsButton}" Command="{Binding ConnectCommand}" Margin="0,0,8,0"
+              Visibility="{Binding NeedsConnection, Converter={StaticResource BoolVisibility}}" />
+             <Button Content="취소" Style="{StaticResource SettingsGhostButton}" Command="{Binding CancelCommand}" Margin="0,0,8,0"
+              Visibility="{Binding CanCancelConnection, Converter={StaticResource BoolVisibility}}" AutomationProperties.Name="계정 연결 취소" />
+             <Button Style="{StaticResource SettingsIconButton}" Content="&#xE72C;" Command="{Binding RefreshCommand}"
+              ToolTip="새로고침" AutomationProperties.Name="계정 새로고침" />
+             <Button Style="{StaticResource SettingsIconButton}" Content="&#xE712;" Click="OpenAccountMenu" Margin="4,0,0,0"
+              ToolTip="계정 메뉴" AutomationProperties.Name="계정 메뉴">
+              <Button.ContextMenu>
+               <ContextMenu Placement="Bottom" DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextBrush}">
+                <MenuItem Header="재연결" Command="{Binding ConnectCommand}" />
+                <Separator />
+                <MenuItem Header="위로 이동" Command="{Binding UpCommand}" />
+                <MenuItem Header="아래로 이동" Command="{Binding DownCommand}" />
+                <Separator />
+                <MenuItem Header="계정 삭제" Command="{Binding RemoveCommand}" />
+               </ContextMenu>
+              </Button.ContextMenu>
+             </Button>
+            </StackPanel>
+           </Grid>
+           <StackPanel Margin="30,15,0,0" Visibility="{Binding HasWindows, Converter={StaticResource BoolVisibility}}">
+            <Grid Margin="0,0,0,5">
+             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="72" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
+             <TextBlock Text="한도" Foreground="{DynamicResource SubtleBrush}" FontSize="10" />
+             <TextBlock Grid.Column="1" Text="{Binding DisplayLabel}" Foreground="{DynamicResource SubtleBrush}" FontSize="10" HorizontalAlignment="Right" Margin="0,0,16,0" />
+             <TextBlock Grid.Column="2" Text="초기화" Foreground="{DynamicResource SubtleBrush}" FontSize="10" HorizontalAlignment="Right" />
+            </Grid>
+            <ItemsControl ItemsSource="{Binding Windows}">
+             <ItemsControl.ItemTemplate>
+              <DataTemplate>
+               <Grid Margin="0,5">
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="72" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
+                <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center" Margin="0,0,12,0" />
+                <TextBlock Grid.Column="1" Text="{Binding Percent}" FontSize="12" FontWeight="Medium" HorizontalAlignment="Right"
+                 Typography.NumeralAlignment="Tabular" Margin="0,0,16,0" VerticalAlignment="Center" ToolTip="{Binding DisplayDetail}" />
+                <TextBlock Grid.Column="2" Text="{Binding Reset}" FontSize="11" Foreground="{DynamicResource MutedBrush}"
+                 HorizontalAlignment="Right" VerticalAlignment="Center" ToolTip="{Binding ResetDetail}" />
+                <ProgressBar Grid.Row="1" Grid.ColumnSpan="3" Height="2" Margin="0,5,0,0" Value="{Binding Value, Mode=OneWay}"
+                 Foreground="{Binding Accent}" Visibility="{Binding HasValue, Converter={StaticResource BoolVisibility}}"
+                 ToolTip="{Binding DisplayDetail}" AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="{Binding DisplayDetail}" />
+               </Grid>
+              </DataTemplate>
+             </ItemsControl.ItemTemplate>
+            </ItemsControl>
+           </StackPanel>
+           <TextBlock Text="{Binding Notice}" Foreground="{Binding StateBrush}" FontSize="11" TextWrapping="Wrap" Margin="30,12,0,0"
+            Visibility="{Binding HasNotice, Converter={StaticResource BoolVisibility}}" />
+           <Expander Header="계정 설정" Style="{StaticResource SettingsExpander}" FontSize="11" Margin="30,12,0,0">
+            <StackPanel Margin="0,0,0,2">
+             <Grid>
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="20" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+              <StackPanel>
+               <TextBlock Text="별칭" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
+               <TextBox Text="{Binding Alias, UpdateSourceTrigger=LostFocus}" MaxLength="40" AutomationProperties.Name="계정 별칭" />
+              </StackPanel>
+              <CheckBox Grid.Column="2" Content="위젯에 표시" Style="{StaticResource SettingsSwitch}" IsChecked="{Binding Pinned}" VerticalAlignment="Bottom" MinHeight="34" />
+             </Grid>
+             <StackPanel Margin="0,18,0,0">
+              <TextBlock Text="위젯 표시 항목" FontSize="12" FontWeight="Medium" />
+              <TextBlock Text="한 개 이상 선택하세요. 알림은 아래에서 따로 설정합니다." FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,5" TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding WidgetWindowOptions}" AutomationProperties.Name="위젯 표시 항목">
+               <ItemsControl.ItemTemplate><DataTemplate>
+                <CheckBox Style="{StaticResource SettingsSelectionCheckBox}" IsChecked="{Binding IsSelected, Mode=TwoWay}" IsEnabled="{Binding CanToggle}"
+                 ToolTip="{Binding Detail}" ToolTipService.ShowOnDisabled="True" AutomationProperties.Name="{Binding Name}" AutomationProperties.AutomationId="WidgetWindowOption">
+                 <TextBlock Text="{Binding Name}" TextWrapping="Wrap" Margin="0,5" />
+                </CheckBox>
+               </DataTemplate></ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="사용량을 조회하면 한도를 선택할 수 있습니다." FontSize="11" Foreground="{DynamicResource SubtleBrush}" Margin="0,5,0,0"
+               Visibility="{Binding HasWidgetWindowOptions, Converter={StaticResource InverseBoolVisibility}}" />
+             </StackPanel>
+             <Grid Margin="0,16,0,0">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+              <CheckBox Content="자동 새로고침" Style="{StaticResource SettingsSwitch}" IsChecked="{Binding AutoRefresh}" VerticalAlignment="Center" />
+              <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="10,0,0,0">
+               <TextBox Width="72" Style="{StaticResource SettingsNumericTextBox}" IsEnabled="{Binding AutoRefresh}" AutomationProperties.Name="갱신 주기 분" AutomationProperties.AutomationId="RefreshMinutes" AutomationProperties.HelpText="1~1440분">
+                <TextBox.Text><Binding Path="RefreshMinutes" UpdateSourceTrigger="LostFocus"><Binding.ValidationRules><local:RefreshMinutesRule /></Binding.ValidationRules></Binding></TextBox.Text>
+               </TextBox>
+               <TextBlock Text="분" Foreground="{DynamicResource MutedBrush}" FontSize="11" VerticalAlignment="Center" Margin="6,0,0,0" />
+              </StackPanel>
+             </Grid>
+             <StackPanel Margin="0,22,0,0">
+              <TextBlock Text="한도별 알림" FontSize="12" FontWeight="Medium" />
+              <TextBlock Text="설정한 사용률에 도달하면 알립니다. 잔여량 표시와 관계없이 사용량 기준입니다."
+               FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,8" />
+              <ItemsControl ItemsSource="{Binding UsageAlerts}">
+               <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                 <Grid Margin="0,5">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /><ColumnDefinition Width="68" /><ColumnDefinition Width="50" /></Grid.ColumnDefinitions>
+                  <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" Margin="0,0,12,0" />
+                  <TextBox Grid.Column="1" Style="{StaticResource SettingsNumericTextBox}" IsEnabled="{Binding Enabled}" AutomationProperties.Name="알림 임계 사용률" AutomationProperties.AutomationId="UsageAlertThreshold" AutomationProperties.HelpText="1~100%">
+                   <TextBox.Text><Binding Path="ThresholdPercent" UpdateSourceTrigger="LostFocus"><Binding.ValidationRules><local:AlertThresholdRule /></Binding.ValidationRules></Binding></TextBox.Text>
+                  </TextBox>
+                  <TextBlock Grid.Column="2" Text="% 사용 시" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="7,0,0,0" />
+                  <CheckBox Grid.Column="3" Style="{StaticResource SettingsSwitch}" IsChecked="{Binding Enabled}" VerticalAlignment="Center"
+                   AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="사용량 알림" />
+                 </Grid>
+                </DataTemplate>
+               </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBlock Text="사용량을 조회하면 알림을 설정할 수 있습니다." FontSize="11" Foreground="{DynamicResource SubtleBrush}"
+               Visibility="{Binding HasUsageAlerts, Converter={StaticResource InverseBoolVisibility}}" />
+             </StackPanel>
+            </StackPanel>
+           </Expander>
+           <Grid Margin="30,12,0,0">
+            <TextBlock Text="{Binding UpdatedLabel}" ToolTip="{Binding UpdatedDetail}" Foreground="{DynamicResource SubtleBrush}" FontSize="10" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+             <TextBlock x:Name="AccountStatusIcon" Text="{Binding StatusIcon}" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Foreground="{Binding StateBrush}"
+              FontSize="10" Margin="0,0,5,0" VerticalAlignment="Center" Visibility="{Binding HasStatusIndicator, Converter={StaticResource BoolVisibility}}"
+              ToolTip="{Binding Notice}" AutomationProperties.Name="{Binding StateLabel}" />
+             <TextBlock Text="{Binding StateLabel}" Foreground="{Binding StateBrush}" FontSize="10" />
+            </StackPanel>
+           </Grid>
+          </StackPanel>
+         </Border>
+        </DataTemplate>
+       </ItemsControl.ItemTemplate>
+      </ItemsControl>
+      <StackPanel Margin="0,30,0,20" Visibility="{Binding IsEmpty, Converter={StaticResource BoolVisibility}}">
+       <TextBlock Text="연결된 계정이 없습니다." FontSize="13" FontWeight="Medium" />
+       <TextBlock Text="위에서 계정을 연결하면 사용량이 표시됩니다." Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,8,0,0" />
+      </StackPanel>
+     </StackPanel>
+    </ScrollViewer>
+   </TabItem>
+   <TabItem Header="위젯" Style="{StaticResource SettingsTabItem}">
+    <ScrollViewer Padding="0,0,12,0" HorizontalScrollBarVisibility="Disabled">
+     <StackPanel>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
+         <TextBlock Text="표시 방식" FontSize="13" />
+         <TextBlock Text="숫자와 게이지에 표시할 비율을 선택합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <ComboBox x:Name="DisplayModeChoice" Grid.Column="1" SelectionChanged="PreferencesChanged" VerticalAlignment="Center" AutomationProperties.Name="사용량 또는 잔여량 표시">
+         <ComboBoxItem Content="사용량" /><ComboBoxItem Content="잔여량" />
+        </ComboBox>
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="220" /></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
+         <TextBlock Text="트레이 표시 계정" FontSize="13" />
+         <TextBlock Text="자동은 위젯의 첫 계정을 표시합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <ComboBox x:Name="TrayAccountChoice" Grid.Column="1" SelectedValuePath="Id" SelectionChanged="PreferencesChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="트레이 표시 계정">
+         <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" MaxWidth="170" TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="220" /></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
+         <TextBlock Text="트레이 표시 항목" FontSize="13" />
+         <TextBlock Text="계정별로 저장하며 위젯과 별도로 선택합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <ComboBox x:Name="TrayWindowChoice" Grid.Column="1" SelectedValuePath="Id" SelectionChanged="TrayWindowChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="트레이 표시 항목" AutomationProperties.AutomationId="TrayWindowChoice">
+         <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" MaxWidth="170" TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" /></DataTemplate></ComboBox.ItemTemplate>
+        </ComboBox>
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="160" /></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
+         <TextBlock Text="테마" FontSize="13" />
+         <TextBlock Text="Windows 테마를 따르거나 직접 선택합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <ComboBox x:Name="ThemeChoice" Grid.Column="1" SelectionChanged="PreferencesChanged" VerticalAlignment="Center" AutomationProperties.Name="테마">
+         <ComboBoxItem Content="시스템" /><ComboBoxItem Content="다크" /><ComboBoxItem Content="라이트" />
+        </ComboBox>
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="220" /></Grid.ColumnDefinitions>
+        <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
+         <TextBlock Text="위젯 투명도" FontSize="13" />
+         <TextBlock Text="배경·글자·아이콘·게이지에 함께 적용합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <Grid Grid.Column="1" VerticalAlignment="Center">
+         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
+         <Slider x:Name="WidgetTransparencySlider" Style="{StaticResource SettingsSlider}" Minimum="0" Maximum="100" Value="10"
+          SmallChange="1" LargeChange="10" TickFrequency="1" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True"
+          ValueChanged="WidgetTransparencyChanged" Margin="0,0,8,0" AutomationProperties.Name="위젯 투명도"
+          AutomationProperties.HelpText="0%는 불투명, 100%는 완전 투명입니다. 방향키로 1%씩 조절할 수 있습니다." />
+         <TextBlock Grid.Column="1" Text="{Binding Value, ElementName=WidgetTransparencySlider, StringFormat={}{0:0}%}"
+          FontSize="12" Typography.NumeralAlignment="Tabular" HorizontalAlignment="Right" VerticalAlignment="Center" />
+         <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,2,0,0">
+          <TextBlock Text="불투명" FontSize="10" Foreground="{DynamicResource SubtleBrush}" />
+          <TextBlock Text="투명" FontSize="10" Foreground="{DynamicResource SubtleBrush}" HorizontalAlignment="Right" />
+         </Grid>
+        </Grid>
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="마지막 확인 시간" FontSize="13" />
+         <TextBlock Text="계정별로 사용량을 확인한 시각을 표시합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <CheckBox x:Name="LastCheckedChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" Checked="PreferencesChanged" Unchecked="PreferencesChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="마지막 확인 시간" />
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="항상 위에 표시" FontSize="13" />
+         <TextBlock Text="다른 창 위에 위젯을 유지합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" />
+        </StackPanel>
+        <CheckBox x:Name="TopmostChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" Checked="PreferencesChanged" Unchecked="PreferencesChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="항상 위에 표시" />
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="위치 잠금" FontSize="13" />
+         <TextBlock Text="위젯 이동과 크기 변경을 막습니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" />
+        </StackPanel>
+        <CheckBox x:Name="LockChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" Checked="PreferencesChanged" Unchecked="PreferencesChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="위치 잠금" />
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="로그인 시 시작" FontSize="13" />
+         <TextBlock Text="Windows에 로그인하면 위젯을 엽니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" />
+        </StackPanel>
+        <CheckBox x:Name="StartupChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" Checked="PreferencesChanged" Unchecked="PreferencesChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="로그인 시 시작" />
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="위젯 크기" FontSize="13" />
+         <TextBlock Text="표시하는 계정 수에 맞춰 크기를 조절합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="크기 맞춤" Style="{StaticResource SettingsButton}" Click="FitWidget" VerticalAlignment="Center" />
+       </Grid>
+      </Border>
+      <TextBlock Text="드래그로 이동 · 모서리로 크기 조절&#x0a;두 번 클릭하면 설정이 열립니다." Foreground="{DynamicResource SubtleBrush}"
+       FontSize="11" LineHeight="19" Margin="0,20,0,16" />
+     </StackPanel>
+    </ScrollViewer>
+   </TabItem>
+   <TabItem Header="정보" Style="{StaticResource SettingsTabItem}">
+    <ScrollViewer Padding="0,0,12,0" HorizontalScrollBarVisibility="Disabled">
+     <StackPanel>
+      <Grid>
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+       <StackPanel>
+        <TextBlock Text="AI SA" FontSize="16" FontWeight="SemiBold" />
+        <TextBlock x:Name="VersionLabel" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,7,0,0" />
+       </StackPanel>
+       <Button x:Name="UpdateButton" Grid.Column="1" Content="업데이트 확인" Style="{StaticResource SettingsButton}" VerticalAlignment="Top" Click="CheckUpdate" />
+      </Grid>
+      <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,12,0,0" />
+      <Button x:Name="DownloadUpdateButton" Content="다운로드 페이지" Style="{StaticResource SettingsPrimaryButton}" HorizontalAlignment="Left"
+       Margin="0,12,0,0" Visibility="Collapsed" Click="OpenUpdate" />
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,28,0,0">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="Gemini 웹 사용량" FontSize="13" FontWeight="SemiBold" />
+         <TextBlock Text="Gemini 설정 → 사용량 한도에서 확인하세요." FontSize="12" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,8,0,0" />
+         <TextBlock Text="앱 연동은 지원하지 않으며 Antigravity와 별도입니다." FontSize="11" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,6,0,0" />
+        </StackPanel>
+        <Button Grid.Column="1" Content="Gemini 열기" Style="{StaticResource SettingsButton}" VerticalAlignment="Top" Click="OpenGemini" />
+       </Grid>
+      </Border>
+     </StackPanel>
+    </ScrollViewer>
+   </TabItem>
+  </TabControl>
+  <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0" Margin="0,16,0,0">
+   <Grid>
+    <TextBlock x:Name="SaveStatus" Text="자동 저장" Foreground="{DynamicResource SubtleBrush}" FontSize="11" VerticalAlignment="Center" />
+    <Button Content="완료" Style="{StaticResource SettingsButton}" HorizontalAlignment="Right" MinWidth="78" Click="CloseSettings" />
+   </Grid>
+  </Border>
+ </Grid>
+</Window>

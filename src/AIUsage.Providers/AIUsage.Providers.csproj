@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../AIUsage.Core/AIUsage.Core.csproj" />
+    <ProjectReference Include="../AIUsage.Infrastructure/AIUsage.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

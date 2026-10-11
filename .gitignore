@@ -1,0 +1,46 @@
+# Local tools and generated output
+.tools/
+.artifacts/
+artifacts/
+**/bin/
+**/obj/
+.vs/
+*.user
+*.log
+TestResults/
+
+# Credentials and local environment overrides
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+auth.json
+.credentials.json
+credentials.json
+oauth_creds.json
+application_default_credentials.json
+secrets.json
+*.pem
+*.key
+*.pfx
+*.p12
+id_rsa
+id_ed25519
+
+# App data or provider profiles copied into the repository
+/AIUsageWidget/
+/profiles/
+/runtimes/
+/settings.json
+/settings.json.*
+/usage-cache.json
+/usage-cache.json.*
+/usage-alerts.json
+/usage-alerts.json.*
+
+# Diagnostic captures and local databases
+*.har
+*.dmp
+*.sqlite
+*.sqlite-*

@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>false</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/AIUsage.Core/AIUsage.Core.csproj" />
+    <ProjectReference Include="../../src/AIUsage.Infrastructure/AIUsage.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

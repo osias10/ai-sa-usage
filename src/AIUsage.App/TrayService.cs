@@ -1,0 +1,188 @@
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
+using AIUsage.Core;
+using Forms = System.Windows.Forms;
+
+namespace AIUsage.App;
+
+internal sealed class TrayService : IDisposable
+{
+    private readonly Forms.NotifyIcon _tray;
+    private Icon _icon;
+    private readonly AppController _controller;
+    private readonly Popup _popup;
+    private readonly TraySummary _summary;
+    private readonly DispatcherTimer _refreshTimer;
+    private readonly DispatcherTimer _hoverTimer;
+    private readonly DispatcherTimer _notificationTimer;
+    private readonly Queue<IReadOnlyList<UsageAlert>> _pendingAlerts = [];
+    private readonly Forms.ToolStripMenuItem _readingItem;
+    private System.Drawing.Point _hoverPoint;
+    private DateTimeOffset _hoverStarted;
+    private string? _iconKey;
+    private bool _disposed;
+    internal TrayUsageReading CurrentReading { get; private set; } = null!;
+    public TrayService(AppController controller, Action exit)
+    {
+        _controller = controller;
+        _icon = CreateIcon("—", false);
+        _summary = new TraySummary(controller.ViewModel);
+        _popup = new Popup { Child = _summary, Placement = PlacementMode.MousePoint, AllowsTransparency = true, StaysOpen = true, PopupAnimation = PopupAnimation.None };
+        var menu = new Forms.ContextMenuStrip();
+        _readingItem = new Forms.ToolStripMenuItem("AI SA") { Enabled = false };
+        menu.Items.Add(_readingItem);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("위젯 열기", null, (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowWidget));
+        menu.Items.Add("새로고침", null, async (_, _) =>
+        {
+            try { await controller.RefreshAllAsync(); } catch (Exception error) { Application.Current.Dispatcher.Invoke(() => controller.ShowError(error)); }
+        });
+        menu.Items.Add("설정", null, (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowSettings));
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("종료", null, (_, _) => Application.Current.Dispatcher.Invoke(exit));
+        // A scrollable hover panel replaces the native 127-character tooltip.
+        _tray = new Forms.NotifyIcon { Icon = _icon, Text = "", ContextMenuStrip = menu, Visible = true };
+        _tray.MouseMove += (_, _) => Application.Current.Dispatcher.Invoke(BeginHover);
+        _tray.MouseClick += (_, e) => Application.Current.Dispatcher.Invoke(() =>
+        {
+            HideSummary();
+            if (e.Button == Forms.MouseButtons.Left) controller.ShowWidget();
+        });
+        _tray.BalloonTipClicked += (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowSettings);
+        menu.Opening += (_, _) => HideSummary();
+        _refreshTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) => Refresh(), Application.Current.Dispatcher);
+        _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        _hoverTimer.Tick += (_, _) => UpdateHover();
+        _notificationTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
+        _notificationTimer.Tick += (_, _) => ShowNextAlert();
+        controller.PreferencesUpdated += OnUpdated;
+        controller.UsageUpdated += OnUpdated;
+        controller.UsageAlertsRaised += EnqueueAlerts;
+        Refresh();
+    }
+    private void OnUpdated(object? sender, EventArgs e) => Refresh();
+    internal void Refresh()
+    {
+        if (_disposed) return;
+        CurrentReading = TrayUsageFormatting.GetReading(_controller.Settings, _controller.GetStatuses(), DateTimeOffset.UtcNow);
+        _summary.SetMode(_controller.Settings.ShowRemaining);
+        _readingItem.Text = string.Join("\n", CurrentReading.Tooltip.Split('\n').Take(2));
+        _readingItem.ToolTipText = CurrentReading.Tooltip;
+        var key = $"{CurrentReading.IconText}:{CurrentReading.IsWarning}";
+        if (_iconKey == key) return;
+        var replacement = CreateIcon(CurrentReading.IconText, CurrentReading.IsWarning);
+        var previous = _icon;
+        _tray.Icon = replacement;
+        _icon = replacement;
+        _iconKey = key;
+        previous.Dispose();
+    }
+    private void BeginHover()
+    {
+        if (_disposed || _tray.ContextMenuStrip?.Visible == true) return;
+        _hoverPoint = Forms.Cursor.Position;
+        if (_hoverTimer.IsEnabled) return;
+        _hoverStarted = DateTimeOffset.UtcNow;
+        _hoverTimer.Start();
+    }
+    private void UpdateHover()
+    {
+        if (_disposed) return;
+        var cursor = Forms.Cursor.Position;
+        if (_popup.IsOpen && _summary.IsMouseOver) return;
+        if (Math.Abs(cursor.X - _hoverPoint.X) > 14 || Math.Abs(cursor.Y - _hoverPoint.Y) > 14)
+        {
+            HideSummary();
+            return;
+        }
+        if (!_popup.IsOpen && DateTimeOffset.UtcNow - _hoverStarted >= TimeSpan.FromMilliseconds(450)) ShowSummary();
+    }
+    internal void ShowSummary()
+    {
+        Refresh();
+        _popup.IsOpen = true;
+    }
+    internal void HideSummary()
+    {
+        _popup.IsOpen = false;
+        _hoverTimer?.Stop();
+    }
+    internal bool IsSummaryOpen => _popup.IsOpen;
+    private void EnqueueAlerts(IReadOnlyList<UsageAlert> alerts)
+    {
+        if (_disposed || _controller.IsDemo || alerts.Count == 0) return;
+        _pendingAlerts.Enqueue(alerts);
+        if (!_notificationTimer.IsEnabled) { ShowNextAlert(); _notificationTimer.Start(); }
+    }
+    private void ShowNextAlert()
+    {
+        while (_pendingAlerts.TryDequeue(out var pending))
+        {
+            var first = pending[0];
+            var account = _controller.Settings.Accounts.FirstOrDefault(a => a.Id == first.AccountId && a.IdentityKey == first.IdentityKey);
+            if (account is null) continue;
+            var status = _controller.GetStatuses().FirstOrDefault(s => s.AccountId == account.Id);
+            var snapshot = status?.Snapshot;
+            var now = DateTimeOffset.UtcNow;
+            if (status?.State != UsageState.Ready || snapshot is null || snapshot.State != UsageState.Ready ||
+                snapshot.IdentityKey != account.IdentityKey || snapshot.Provider != account.Provider ||
+                snapshot.FetchedAt > now || now - snapshot.FetchedAt > UsageAlertEngine.MaximumSnapshotAge) continue;
+            // Other account alerts may have been queued for several seconds. Recheck the latest
+            // successful reading instead of displaying a warning that has since become obsolete.
+            var lines = pending.Select(a => snapshot.Windows.FirstOrDefault(w => w.Id == a.WindowId && w.ResetsAt == a.ResetsAt))
+                .OfType<UsageWindow>()
+                .Where(w => w.UsedPercent is { } used && double.IsFinite(used) && used is >= 0 and <= 100 &&
+                    account.UsageAlerts.Any(rule => rule.Enabled && rule.WindowId == w.Id && used >= rule.ThresholdPercent) &&
+                    (w.ResetsAt is null || w.ResetsAt > now))
+                .Select(w => $"{w.Name} · 사용 {w.UsedPercent:0.#}%\n{UsageFormatting.Remaining(w.ResetsAt, now)}").ToArray();
+            if (lines.Length == 0) continue;
+            var message = $"{account.Provider} · {account.Alias}\n" + string.Join("\n", lines);
+            _tray.ShowBalloonTip(10000, "AI SA · 사용량 알림", message, Forms.ToolTipIcon.Warning);
+            return;
+        }
+        _notificationTimer.Stop();
+    }
+    private static Icon CreateIcon(string number, bool warning)
+    {
+        using var bitmap = new Bitmap(32, 32);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        graphics.Clear(Color.Transparent);
+        using var background = new SolidBrush(warning ? Color.FromArgb(146, 92, 29) : Color.FromArgb(47, 86, 151));
+        using var tile = new GraphicsPath();
+        tile.AddArc(1, 1, 13, 13, 180, 90);
+        tile.AddArc(18, 1, 13, 13, 270, 90);
+        tile.AddArc(18, 18, 13, 13, 0, 90);
+        tile.AddArc(1, 18, 13, 13, 90, 90);
+        tile.CloseFigure();
+        graphics.FillPath(background, tile);
+        graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+        using var font = new Font("Segoe UI", number.Length >= 3 ? 17 : 21, System.Drawing.FontStyle.Bold, GraphicsUnit.Pixel);
+        using var ink = new SolidBrush(Color.White);
+        using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        graphics.DrawString(number, font, ink, new RectangleF(0, 0, 32, 31), format);
+        var handle = bitmap.GetHicon();
+        try { return (Icon)Icon.FromHandle(handle).Clone(); }
+        finally { DestroyIcon(handle); }
+    }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _controller.PreferencesUpdated -= OnUpdated;
+        _controller.UsageUpdated -= OnUpdated;
+        _controller.UsageAlertsRaised -= EnqueueAlerts;
+        _refreshTimer.Stop(); _hoverTimer.Stop(); _notificationTimer.Stop();
+        _pendingAlerts.Clear();
+        _popup.IsOpen = false;
+        _popup.Child = null;
+        _tray.Visible = false;
+        _tray.ContextMenuStrip?.Dispose(); _tray.Dispose(); _icon.Dispose();
+    }
+    [DllImport("user32.dll")] private static extern bool DestroyIcon(IntPtr handle);
+}

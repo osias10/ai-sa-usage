@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AIUsage.App/AIUsage.App.csproj" />
+    <Project Path="src/AIUsage.Core/AIUsage.Core.csproj" />
+    <Project Path="src/AIUsage.Infrastructure/AIUsage.Infrastructure.csproj" />
+    <Project Path="src/AIUsage.Providers/AIUsage.Providers.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AIUsage.RuntimeProbe/AIUsage.RuntimeProbe.csproj" />
+    <Project Path="tests/AIUsage.TestChild/AIUsage.TestChild.csproj" />
+    <Project Path="tests/AIUsage.Tests/AIUsage.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets/AISA.ico</ApplicationIcon>
+    <Product>AI SA</Product>
+    <Title>AI SA</Title>
+    <AssemblyTitle>AI SA</AssemblyTitle>
+    <Description>AI 구독 사용량 위젯</Description>
+    <AssemblyName>AIUsageWidget</AssemblyName>
+    <RootNamespace>AIUsage.App</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AIUsage.Core/AIUsage.Core.csproj" />
+    <ProjectReference Include="../AIUsage.Infrastructure/AIUsage.Infrastructure.csproj" />
+    <ProjectReference Include="../AIUsage.Providers/AIUsage.Providers.csproj" />
+  </ItemGroup>
+  <ItemGroup><None Update="release-channel.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup><Resource Include="Assets/AISA.ico" /></ItemGroup>
+</Project>

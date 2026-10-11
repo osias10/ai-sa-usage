@@ -1,0 +1,46 @@
+<UserControl x:Class="AIUsage.App.TraySummary"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ FontFamily="Segoe UI, Malgun Gothic" FontSize="12" Foreground="{DynamicResource TextBrush}">
+ <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="14" Width="300">
+  <StackPanel>
+   <DockPanel Margin="0,0,0,10">
+    <TextBlock Text="AI SA" FontWeight="SemiBold" />
+    <TextBlock x:Name="ModeLabel" Text="사용량" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+   </DockPanel>
+   <TextBlock Text="연결된 계정이 없습니다." Foreground="{DynamicResource MutedBrush}" Visibility="{Binding IsEmpty, Converter={StaticResource BoolVisibility}}" />
+   <ScrollViewer MaxHeight="380" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+    <ItemsControl ItemsSource="{Binding Accounts}">
+     <ItemsControl.ItemTemplate>
+      <DataTemplate>
+       <StackPanel Margin="0,0,0,12">
+        <DockPanel Margin="0,0,0,5">
+         <TextBlock x:Name="AccountStatusIcon" DockPanel.Dock="Right" Text="{Binding StatusIcon}" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+          FontSize="10" Foreground="{Binding StateBrush}" Margin="6,0,0,0" VerticalAlignment="Center"
+          Visibility="{Binding HasStatusIndicator, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding Notice}" AutomationProperties.Name="{Binding StateLabel}" />
+         <TextBlock Text="{Binding ProviderName}" FontWeight="SemiBold" Margin="0,0,6,0" />
+         <TextBlock Text="{Binding Alias}" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+        </DockPanel>
+        <ItemsControl ItemsSource="{Binding CompactWindows}">
+         <ItemsControl.ItemTemplate>
+          <DataTemplate>
+           <Grid Margin="0,2">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="50" /><ColumnDefinition Width="90" /></Grid.ColumnDefinitions>
+            <TextBlock Text="{Binding CompactName}" TextTrimming="CharacterEllipsis" />
+            <TextBlock Grid.Column="1" Text="{Binding Percent}" HorizontalAlignment="Right" />
+            <TextBlock Grid.Column="2" Text="{Binding CompactReset}" HorizontalAlignment="Right" Foreground="{DynamicResource MutedBrush}" />
+           </Grid>
+          </DataTemplate>
+         </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock Text="{Binding UpdatedLabel}" FontSize="10" Foreground="{DynamicResource SubtleBrush}" Margin="0,5,0,0" />
+        <TextBlock Text="{Binding Notice}" FontSize="10" Foreground="{Binding StateBrush}" TextWrapping="Wrap" Visibility="{Binding HasNotice, Converter={StaticResource BoolVisibility}}" Margin="0,3,0,0" />
+       </StackPanel>
+      </DataTemplate>
+     </ItemsControl.ItemTemplate>
+    </ItemsControl>
+   </ScrollViewer>
+   <TextBlock Text="클릭 · 위젯 열기    우클릭 · 메뉴" Foreground="{DynamicResource SubtleBrush}" FontSize="10" />
+  </StackPanel>
+ </Border>
+</UserControl>
