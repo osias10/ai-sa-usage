@@ -61,10 +61,19 @@ public sealed class SettingsTests : IDisposable
         await File.WriteAllTextAsync(paths.SettingsFile, "{\"Accounts\":[{\"Id\":\"" + id + "\",\"Provider\":\"Claude\"}]}");
         var loaded = await new JsonSettingsStore(paths).LoadSettingsAsync();
         Assert.False(loaded.ShowRemaining);
+        Assert.True(loaded.AutoCheckUpdates);
         Assert.Null(loaded.TrayAccountId);
         Assert.Null(loaded.Accounts[0].TrayWindow);
         Assert.Null(loaded.Accounts[0].WidgetWindows);
         Assert.Empty(Assert.Single(loaded.Accounts).UsageAlerts);
+    }
+    [Fact]
+    public async Task AutomaticUpdatePreferenceSurvivesRestart()
+    {
+        var paths = new AppPaths(_directory);
+        var store = new JsonSettingsStore(paths);
+        await store.SaveSettingsAsync(new() { AutoCheckUpdates = false });
+        Assert.False((await new JsonSettingsStore(paths).LoadSettingsAsync()).AutoCheckUpdates);
     }
     [Fact]
     public async Task AlertRulesAndDisplayPreferencesRoundTrip()

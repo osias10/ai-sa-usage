@@ -38,6 +38,9 @@ id_ed25519
 /usage-cache.json.*
 /usage-alerts.json
 /usage-alerts.json.*
+/update-state.json
+/update-state.json.*
+/updates/
 
 # Diagnostic captures and local databases
 *.har

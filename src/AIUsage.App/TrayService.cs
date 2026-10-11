@@ -25,6 +25,8 @@ internal sealed class TrayService : IDisposable
     private DateTimeOffset _hoverStarted;
     private string? _iconKey;
     private bool _disposed;
+    private ReleaseInfo? _pendingUpdate;
+    private bool _balloonShowsUpdate;
     internal TrayUsageReading CurrentReading { get; private set; } = null!;
     public TrayService(AppController controller, Action exit)
     {
@@ -42,6 +44,7 @@ internal sealed class TrayService : IDisposable
             try { await controller.RefreshAllAsync(); } catch (Exception error) { Application.Current.Dispatcher.Invoke(() => controller.ShowError(error)); }
         });
         menu.Items.Add("설정", null, (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowSettings));
+        menu.Items.Add("업데이트", null, (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowUpdateSettings));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("종료", null, (_, _) => Application.Current.Dispatcher.Invoke(exit));
         // A scrollable hover panel replaces the native 127-character tooltip.
@@ -52,7 +55,11 @@ internal sealed class TrayService : IDisposable
             HideSummary();
             if (e.Button == Forms.MouseButtons.Left) controller.ShowWidget();
         });
-        _tray.BalloonTipClicked += (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowSettings);
+        _tray.BalloonTipClicked += (_, _) => Application.Current.Dispatcher.Invoke(() =>
+        {
+            if (_balloonShowsUpdate) controller.ShowUpdateSettings();
+            else controller.ShowSettings();
+        });
         menu.Opening += (_, _) => HideSummary();
         _refreshTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) => Refresh(), Application.Current.Dispatcher);
         _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
@@ -62,6 +69,7 @@ internal sealed class TrayService : IDisposable
         controller.PreferencesUpdated += OnUpdated;
         controller.UsageUpdated += OnUpdated;
         controller.UsageAlertsRaised += EnqueueAlerts;
+        if (controller.Updates is not null) controller.Updates.UpdateAvailable += EnqueueUpdate;
         Refresh();
     }
     private void OnUpdated(object? sender, EventArgs e) => Refresh();
@@ -118,6 +126,12 @@ internal sealed class TrayService : IDisposable
         _pendingAlerts.Enqueue(alerts);
         if (!_notificationTimer.IsEnabled) { ShowNextAlert(); _notificationTimer.Start(); }
     }
+    private void EnqueueUpdate(ReleaseInfo release) => Application.Current.Dispatcher.BeginInvoke(() =>
+    {
+        if (_disposed) return;
+        _pendingUpdate = release;
+        if (!_notificationTimer.IsEnabled) { ShowNextAlert(); _notificationTimer.Start(); }
+    });
     private void ShowNextAlert()
     {
         while (_pendingAlerts.TryDequeue(out var pending))
@@ -141,7 +155,15 @@ internal sealed class TrayService : IDisposable
                 .Select(w => $"{w.Name} · 사용 {w.UsedPercent:0.#}%\n{UsageFormatting.Remaining(w.ResetsAt, now)}").ToArray();
             if (lines.Length == 0) continue;
             var message = $"{account.Provider} · {account.Alias}\n" + string.Join("\n", lines);
+            _balloonShowsUpdate = false;
             _tray.ShowBalloonTip(10000, "AI SA · 사용량 알림", message, Forms.ToolTipIcon.Warning);
+            return;
+        }
+        if (_pendingUpdate is { } release)
+        {
+            _pendingUpdate = null;
+            _balloonShowsUpdate = true;
+            _tray.ShowBalloonTip(10000, "AI SA · 새 버전", $"{release.Version} 버전이 있습니다. 눌러서 업데이트를 확인하세요.", Forms.ToolTipIcon.Info);
             return;
         }
         _notificationTimer.Stop();
@@ -177,6 +199,7 @@ internal sealed class TrayService : IDisposable
         _controller.PreferencesUpdated -= OnUpdated;
         _controller.UsageUpdated -= OnUpdated;
         _controller.UsageAlertsRaised -= EnqueueAlerts;
+        if (_controller.Updates is not null) _controller.Updates.UpdateAvailable -= EnqueueUpdate;
         _refreshTimer.Stop(); _hoverTimer.Stop(); _notificationTimer.Stop();
         _pendingAlerts.Clear();
         _popup.IsOpen = false;

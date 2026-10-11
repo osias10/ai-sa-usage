@@ -1,5 +1,8 @@
 using System.Diagnostics;
 using System.Net.NetworkInformation;
+using System.Net.Http;
+using System.Reflection;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using AIUsage.Core;
@@ -20,11 +23,19 @@ public sealed class AppController : IAsyncDisposable
     private readonly Dictionary<string, UsageSnapshot?> _observedSnapshots = [];
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
+    private readonly HttpClient? _updateHttp;
+    private readonly HttpClient? _downloadHttp;
+    private Task _updateInitialization = Task.CompletedTask;
+    private readonly UpdateInstallation _updateInstallation = new();
+    private bool _preparingUpdate;
     private readonly Dictionary<string, CancellationTokenSource> _connections = [];
     private readonly Dictionary<string, TaskCompletionSource> _connectionCompletions = [];
     public AppSettings Settings { get; }
     public MainViewModel ViewModel { get; }
     public bool IsDemo { get; }
+    public AppUpdateService? Updates { get; }
+    internal Func<Task>? ExitForUpdateAsync { get; set; }
+    internal bool UpdateInstallerLaunched { get; private set; }
     public MainWindow? Window { get; set; }
     public event EventHandler? PreferencesUpdated;
     public event EventHandler? WidgetAppearanceUpdated;
@@ -64,6 +75,23 @@ public sealed class AppController : IAsyncDisposable
         _clock = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => ViewModel.Tick(), Application.Current.Dispatcher);
         if (!demo)
         {
+            var paths = new AppPaths();
+            var source = new GitHubReleaseSource("osias10", "ai-sa-usage");
+            var channelPath = Path.Combine(AppContext.BaseDirectory, "release-channel.json");
+            try
+            {
+                if (File.Exists(channelPath))
+                    source = JsonSerializer.Deserialize<GitHubReleaseSource>(File.ReadAllText(channelPath),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? source;
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException)
+            {
+                // An unreadable local channel cannot stop usage tracking. Use the public default.
+            }
+            _updateHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+            _downloadHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
+            Updates = new AppUpdateService(new UpdateChecker(_updateHttp), new UpdateDownloader(_downloadHttp, paths.UpdatesDirectory),
+                source, Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 4, 6), paths.UpdateStateFile);
             SystemEvents.PowerModeChanged += PowerChanged;
             SystemEvents.TimeChanged += TimeChanged;
             SystemEvents.UserPreferenceChanged += UserPreferenceChanged;
@@ -115,9 +143,18 @@ public sealed class AppController : IAsyncDisposable
         vm.Apply(_coordinator.GetStatus(account.Id));
         return vm;
     }
-    public void Start() { ThemeManager.Apply(Settings.Theme); if (!IsDemo) _coordinator.Start(); }
+    public void Start()
+    {
+        ThemeManager.Apply(Settings.Theme);
+        if (!IsDemo)
+        {
+            _coordinator.Start();
+            _updateInitialization = Updates!.InitializeAsync(Settings.AutoCheckUpdates, _shutdown.Token);
+        }
+    }
     public void ShowSettings()
     {
+        if (_preparingUpdate) return;
         if (_settingsWindow is not null)
         {
             _settingsWindow.Show();
@@ -131,10 +168,68 @@ public sealed class AppController : IAsyncDisposable
     }
     public void ShowWidget()
     {
+        if (_preparingUpdate) return;
         if (Window is null) return;
         Window.Show();
         Window.WindowState = WindowState.Normal;
         Window.Activate();
+    }
+    public void ShowUpdateSettings()
+    {
+        ShowSettings();
+        _settingsWindow?.ShowUpdateInfo();
+    }
+    public async Task SetAutoCheckUpdatesAsync(bool enabled)
+    {
+        var previous = Settings.AutoCheckUpdates;
+        Settings.AutoCheckUpdates = enabled;
+        try { await SaveSettingsAsync(); }
+        catch { Settings.AutoCheckUpdates = previous; throw; }
+        Updates?.SetAutoCheckEnabled(enabled);
+    }
+    public async Task InstallUpdateAsync()
+    {
+        if (IsDemo || Updates is null) throw new InvalidOperationException("데모에서는 설치할 수 없습니다.");
+        if (_preparingUpdate) return;
+        if (_connections.Count > 0) throw new InvalidOperationException("계정 연결을 마친 뒤 설치를 실행해 주세요.");
+        var exit = ExitForUpdateAsync ?? throw new InvalidOperationException("앱 종료를 준비하지 못했습니다.");
+        var enabledWindows = new List<Window>();
+        try
+        {
+            await _updateInstallation.RunAsync(
+            () => Updates.GetVerifiedInstallerAsync(_shutdown.Token),
+            async () =>
+            {
+                if (_connections.Count > 0) throw new InvalidOperationException("계정 연결을 마친 뒤 설치를 실행해 주세요.");
+                _preparingUpdate = true;
+                foreach (Window window in Application.Current.Windows)
+                    if (window.IsEnabled) { enabledWindows.Add(window); window.IsEnabled = false; }
+                if (_settingsWindow is not null) await _settingsWindow.FlushPendingEditsAsync();
+                Window?.CapturePlacement();
+                await SaveSettingsAsync();
+                await SaveSnapshotsAsync();
+                await SaveAlertStateAsync();
+            },
+            installer =>
+            {
+                if (_disposed) throw new InvalidOperationException("앱이 종료 중입니다. 다시 실행한 뒤 설치해 주세요.");
+                var start = new ProcessStartInfo(installer) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(installer)! };
+                start.ArgumentList.Add("/DIR=" + AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
+                start.ArgumentList.Add("/LANG=korean");
+                using var process = Process.Start(start) ?? throw new InvalidOperationException("설치 프로그램을 열지 못했습니다.");
+                UpdateInstallerLaunched = true;
+            }, exit);
+        }
+        finally
+        {
+            _preparingUpdate = false;
+            if (!_disposed)
+            {
+                foreach (var window in enabledWindows) window.IsEnabled = true;
+                foreach (var account in ViewModel.Accounts) account.Apply(_coordinator.GetStatus(account.Id));
+                ViewModel.Tick();
+            }
+        }
     }
     public async Task AddAccountAsync(ProviderKind provider, string alias)
     {
@@ -176,7 +271,12 @@ public sealed class AppController : IAsyncDisposable
         ViewModel.Error = null;
         return _coordinator.RefreshAsync(account.Id, new Progress<ProviderProgress>(account.Report), _shutdown.Token);
     }
-    public Task RefreshAllAsync() { ViewModel.Error = null; return _coordinator.RefreshAllAsync(_shutdown.Token); }
+    public Task RefreshAllAsync()
+    {
+        if (_preparingUpdate) return Task.CompletedTask;
+        ViewModel.Error = null;
+        return _coordinator.RefreshAllAsync(_shutdown.Token);
+    }
     private async Task RemoveAccountAsync(AccountViewModel account)
     {
         if (IsDemo) return;
@@ -251,7 +351,7 @@ public sealed class AppController : IAsyncDisposable
     {
         Application.Current.Dispatcher.BeginInvoke(async () =>
         {
-            if (_disposed) return;
+            if (_disposed || _preparingUpdate) return;
             ViewModel.Accounts.FirstOrDefault(x => x.Id == e.Status.AccountId)?.Apply(e.Status);
             ViewModel.Tick();
             UsageUpdated?.Invoke(this, EventArgs.Empty);
@@ -314,11 +414,20 @@ public sealed class AppController : IAsyncDisposable
         _coordinator.Changed -= CoordinatorChanged;
         _settingsWindow?.Close();
         await _shutdown.CancelAsync();
+        try { await _updateInitialization; } catch (OperationCanceledException) { }
+        if (Updates is not null) await Updates.DisposeAsync();
+        _updateHttp?.Dispose();
+        _downloadHttp?.Dispose();
         await Task.WhenAll(_connectionCompletions.Values.Select(x => x.Task).ToArray());
         await _coordinator.DisposeAsync();
-        await SaveSettingsAsync();
-        await SaveSnapshotsAsync();
-        await SaveAlertStateAsync();
+        // Installation already crossed the durable-save boundary before launching its wizard.
+        // Do not introduce another fallible write after handing control to that process.
+        if (!UpdateInstallerLaunched)
+        {
+            await SaveSettingsAsync();
+            await SaveSnapshotsAsync();
+            await SaveAlertStateAsync();
+        }
         _runtime?.Dispose();
         _shutdown.Dispose();
     }

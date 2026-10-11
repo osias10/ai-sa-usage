@@ -1,5 +1,7 @@
 #define AppName "AI SA"
-#define AppVersion "0.4.5"
+#ifndef AppVersion
+  #error AppVersion must be supplied by build/Packaging.csproj
+#endif
 #define AppExe "AIUsageWidget.exe"
 [Setup]
 AppId={{EA2541B7-CE15-4DF9-A1EF-4273D81B8DB6}

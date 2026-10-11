@@ -356,9 +356,41 @@
        </StackPanel>
        <Button x:Name="UpdateButton" Grid.Column="1" Content="업데이트 확인" Style="{StaticResource SettingsButton}" VerticalAlignment="Top" Click="CheckUpdate" />
       </Grid>
-      <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,12,0,0" />
-      <Button x:Name="DownloadUpdateButton" Content="다운로드 페이지" Style="{StaticResource SettingsPrimaryButton}" HorizontalAlignment="Left"
-       Margin="0,12,0,0" Visibility="Collapsed" Click="OpenUpdate" />
+      <Grid Margin="0,22,0,0">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="115" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+       <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+       <TextBlock Text="최신 버전" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+       <TextBlock x:Name="LatestVersionLabel" Grid.Column="1" Text="아직 확인하지 않음" FontSize="12" />
+       <TextBlock Grid.Row="1" Text="마지막 확인" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
+       <TextBlock x:Name="LastUpdateCheckLabel" Grid.Row="1" Grid.Column="1" Text="아직 확인하지 않음" FontSize="12" Margin="0,10,0,0" />
+      </Grid>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,22,0,0" Padding="0,17,0,0">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="자동 업데이트 확인" FontSize="13" />
+         <TextBlock Text="새 버전을 알립니다. 다운로드와 설치는 직접 시작합니다." FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <CheckBox x:Name="AutoCheckUpdatesChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" VerticalAlignment="Center"
+         Checked="AutoCheckUpdatesChanged" Unchecked="AutoCheckUpdatesChanged" AutomationProperties.Name="자동 업데이트 확인" />
+       </Grid>
+      </Border>
+      <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,21,0,0" AutomationProperties.LiveSetting="Polite" />
+      <TextBlock x:Name="UpdateRetryLabel" TextWrapping="Wrap" Foreground="{DynamicResource SubtleBrush}" FontSize="11" Margin="0,6,0,0" Visibility="Collapsed" />
+      <StackPanel x:Name="UpdateProgressPanel" Margin="0,14,0,0" Visibility="Collapsed">
+       <ProgressBar x:Name="UpdateProgress" Height="4" Minimum="0" Maximum="100" AutomationProperties.Name="업데이트 다운로드 진행률" />
+       <Grid Margin="0,8,0,0">
+        <TextBlock x:Name="UpdateProgressLabel" Foreground="{DynamicResource MutedBrush}" FontSize="11" VerticalAlignment="Center" />
+        <Button x:Name="CancelUpdateDownloadButton" Content="다운로드 취소" Style="{StaticResource SettingsGhostButton}" HorizontalAlignment="Right" Click="CancelUpdateDownload" />
+       </Grid>
+      </StackPanel>
+      <WrapPanel Margin="0,12,0,0">
+       <Button x:Name="DownloadUpdateButton" Content="다운로드" Style="{StaticResource SettingsPrimaryButton}" Visibility="Collapsed" Click="DownloadUpdate" Margin="0,0,8,0" />
+       <Button x:Name="InstallUpdateButton" Content="설치 실행" Style="{StaticResource SettingsPrimaryButton}" Visibility="Collapsed" Click="InstallUpdate" Margin="0,0,8,0" />
+       <Button x:Name="ReleaseNotesButton" Content="변경 사항" Style="{StaticResource SettingsGhostButton}" Visibility="Collapsed" Click="OpenReleaseNotes" />
+      </WrapPanel>
+      <TextBlock x:Name="InstallUpdateHint" Text="파일 검증을 마쳤습니다. 설치 실행을 누르면 AI SA를 닫고 설치 프로그램을 엽니다."
+       FontSize="11" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
       <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,28,0,0">
        <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>

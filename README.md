@@ -6,7 +6,7 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · Preview 0.4.5
+Windows 11 x64 · Desktop widget & system tray · Preview 0.4.6
 
 ## Screenshots
 
@@ -46,9 +46,9 @@ This is a preview. Claude has been checked with a connected Max account. Codex a
 
 ## Get started
 
-**Requires Windows 11 on an x64 PC.** The app interface is currently in Korean. A public installer download link is not yet available on this page.
+**Requires Windows 11 on an x64 PC.** The app interface is currently in Korean. [Download the latest published release](https://github.com/osias10/ai-sa-usage/releases/latest).
 
-1. Run the Windows installer, `AISA-0.4.5-win-x64-setup.exe`. It installs for your Windows user without administrator privileges.
+1. Download and run `AISA-{version}-win-x64-setup.exe` from the release assets. It installs for your Windows user without administrator privileges.
 2. Open **Settings (설정) → Accounts (계정) → Add account (계정 추가)** and select a service.
 3. Complete the provider's sign-in flow. AI SA prepares the required official tools automatically—no API key, terminal commands, or separate developer tools to set up.
 4. Choose the limits you want in **Account settings (계정 설정) → Widget items (위젯 표시 항목)**. Set your tray account and limit separately in the **Widget (위젯)** tab.
@@ -68,6 +68,14 @@ The first connection needs internet access and may download several hundred mega
 | Quit AI SA | Choose **종료** from the tray menu |
 
 Changes are saved automatically. At 100% transparency, the whole widget is invisible; the tray menu and settings stay available so you can adjust it again.
+
+## Updates
+
+Starting with **0.4.6**, AI SA checks GitHub for a new stable release once every 24 hours and notifies you once per version. You can turn automatic checks off or check manually in **Settings → Info (정보)**. The tray's **업데이트** menu opens the same screen.
+
+Choose **Download (다운로드)** to download and verify the installer. You can cancel the download and keep using the widget. When ready, choose **Run installer (설치 실행)**: AI SA saves your settings, opens the installation wizard, and exits. Complete the wizard and use its **AI SA 실행** option to reopen the app. Your accounts and widget settings are preserved.
+
+**If you use 0.4.5, install a published version of 0.4.6 or later manually first.** Its update address was not configured, so it cannot discover this first upgrade itself. Pre-releases are not offered by the updater.
 
 ## Clear status, local settings
 

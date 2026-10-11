@@ -34,6 +34,7 @@ public partial class App : Application
         try
         {
             _controller = await AppController.CreateAsync(demo, e.Args.Contains("--mini"), e.Args.Contains("--light"));
+            _controller.ExitForUpdateAsync = () => ExitAsync();
             ThemeManager.Apply(_controller.Settings.Theme);
             if (e.Args.Contains("--smoke-test"))
                 _controller.Settings.Placements["compact-v2:last"] = new(100, 100, 230, 600);
@@ -74,6 +75,7 @@ public partial class App : Application
                 if (settings.Owner is not null || !settings.IsVisible)
                     throw new InvalidOperationException("Settings must open as an independent window.");
                 await VerifyWindowBehaviorAsync(window, settings);
+                await VerifyUpdateInfoAsync(window, settings);
                 var settingsTabs = (System.Windows.Controls.TabControl)settings.FindName("SettingsTabs");
                 for (var index = 0; index < settingsTabs.Items.Count; index++)
                 {
@@ -228,7 +230,7 @@ public partial class App : Application
         _tray?.Dispose();
         if (_controller is not null)
         {
-            _controller.Window?.CapturePlacement();
+            if (!_controller.UpdateInstallerLaunched) _controller.Window?.CapturePlacement();
             try { await _controller.DisposeAsync(); } catch { code = 1; }
             if (_controller.Window is { } window) { window.AllowClose = true; window.Close(); }
         }

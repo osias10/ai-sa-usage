@@ -45,6 +45,7 @@ public sealed class AppSettings
     public bool PositionLocked { get; set; }
     public bool MiniMode { get; set; }
     public bool StartWithWindows { get; set; }
+    public bool AutoCheckUpdates { get; set; } = true;
     public bool ShowRemaining { get; set; }
     public bool ShowLastChecked { get; set; } = true;
     public string? TrayAccountId { get; set; }
@@ -106,6 +107,8 @@ public sealed class AppPaths
     public string SettingsFile => Path.Combine(Root, "settings.json");
     public string CacheFile => Path.Combine(Root, "usage-cache.json");
     public string AlertStateFile => Path.Combine(Root, "usage-alerts.json");
+    public string UpdateStateFile => Path.Combine(Root, "update-state.json");
+    public string UpdatesDirectory => Path.Combine(Root, "updates");
     public string Runtimes => Path.Combine(Root, "runtimes");
     public string WorkDirectory => Path.Combine(Root, "work");
     public string ProfileDirectory(AccountSettings account)
