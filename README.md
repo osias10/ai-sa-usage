@@ -8,6 +8,18 @@ AI SA is a small Windows widget for keeping an eye on your AI subscription limit
 
 Windows 11 x64 · Desktop widget & system tray · Preview 0.4.5
 
+## Screenshots
+
+Screenshots use demo data in the Korean UI. No real account information is shown.
+
+**Desktop widget · Dark theme**
+
+![AI SA compact widget with usage gauges and reset countdowns for Claude, Codex, and Antigravity](docs/images/widget-dark.png)
+
+**Settings · Light theme**
+
+![AI SA account settings showing Claude session, weekly, and Fable usage with demo accounts](docs/images/settings-light.png)
+
 ## At a glance
 
 - **Usage and reset times.** Percentages, progress bars, and a countdown to each reset. Switch between used and remaining capacity.
