@@ -81,15 +81,16 @@ public sealed class SettingsTests : IDisposable
         var store = new JsonSettingsStore(new(_directory));
         var account = new AccountSettings
         {
-            UsageAlerts = [new() { WindowId = "session", Enabled = true, ThresholdPercent = 85 }, new() { WindowId = "weekly" }]
+            UsageAlerts = [new() { WindowId = "session", Enabled = true, ThresholdPercent = 85 },
+                new() { WindowId = "weekly", ResetEnabled = true }]
         };
         await store.SaveSettingsAsync(new() { Accounts = [account], ShowRemaining = true, TrayAccountId = account.Id });
         var loaded = await store.LoadSettingsAsync();
         Assert.True(loaded.ShowRemaining);
         Assert.Equal(account.Id, loaded.TrayAccountId);
         Assert.Collection(loaded.Accounts[0].UsageAlerts,
-            rule => { Assert.Equal("session", rule.WindowId); Assert.True(rule.Enabled); Assert.Equal(85, rule.ThresholdPercent); },
-            rule => { Assert.Equal("weekly", rule.WindowId); Assert.False(rule.Enabled); Assert.Equal(80, rule.ThresholdPercent); });
+            rule => { Assert.Equal("session", rule.WindowId); Assert.True(rule.Enabled); Assert.Equal(85, rule.ThresholdPercent); Assert.False(rule.ResetEnabled); },
+            rule => { Assert.Equal("weekly", rule.WindowId); Assert.False(rule.Enabled); Assert.Equal(80, rule.ThresholdPercent); Assert.True(rule.ResetEnabled); });
     }
     [Fact]
     public async Task MalformedRulesAndRemovedTrayAccountAreNormalized()
@@ -247,5 +248,193 @@ public sealed class SettingsTests : IDisposable
         Assert.Equal(new WidgetWindowSelection("unavailable-limit", "선택한 한도"), restored.TrayWindow);
         Assert.Null(restored.WidgetWindows);
     }
+    [Fact]
+    public async Task OlderAlertRulesAndHistoryDefaultToNoResetNotifications()
+    {
+        var paths = new AppPaths(_directory);
+        Directory.CreateDirectory(_directory);
+        var id = Guid.NewGuid().ToString("N");
+        await File.WriteAllTextAsync(paths.SettingsFile,
+            "{\"Accounts\":[{\"Id\":\"" + id + "\",\"UsageAlerts\":[{\"WindowId\":\"session\",\"Enabled\":true,\"ThresholdPercent\":85}]}]}");
+        await File.WriteAllTextAsync(paths.AlertStateFile, "{\"SchemaVersion\":1,\"Deliveries\":[]}");
+        var store = new JsonSettingsStore(paths);
+        var rule = Assert.Single(Assert.Single((await store.LoadSettingsAsync()).Accounts).UsageAlerts);
+        Assert.True(rule.Enabled);
+        Assert.False(rule.ResetEnabled);
+        Assert.Equal(85, rule.ThresholdPercent);
+        Assert.Empty((await store.LoadAlertStateAsync()).ResetObservations);
+    }
+
+    [Fact]
+    public async Task ResetBaselinePersistsBeforeAnyNoticeAndAConfirmedResetCannotNotifyAgainAfterRestart()
+    {
+        var paths = new AppPaths(_directory);
+        var store = new JsonSettingsStore(paths);
+        var account = new AccountSettings
+        {
+            IdentityKey = "synthetic-reset-identity", UsageAlerts = [new() { WindowId = "session", ResetEnabled = true }]
+        };
+        var now = DateTimeOffset.UtcNow;
+        var first = new UsageSnapshot(account.Provider, account.Id, account.IdentityKey, null, now,
+            [new("session", "세션", 90, now.AddMinutes(1))]);
+        var engine = new UsageAlertEngine();
+        Assert.Empty(engine.Evaluate(account, first, now, true));
+        await store.SaveAlertStateAsync(engine.GetState());
+        Assert.Empty(engine.GetState().Deliveries);
+        var restored = new UsageAlertEngine(await new JsonSettingsStore(paths).LoadAlertStateAsync());
+        restored.SynchronizeSettings(account);
+        var later = now.AddMinutes(2);
+        var next = first with { FetchedAt = later, Windows = [new("session", "세션", 2, later.AddHours(5))] };
+        Assert.Equal(UsageAlertKind.Reset, Assert.Single(restored.Evaluate(account, next, later, true)).Kind);
+        await store.SaveAlertStateAsync(restored.GetState());
+        var again = new UsageAlertEngine(await store.LoadAlertStateAsync());
+        Assert.Empty(again.Evaluate(account, next with { FetchedAt = later.AddMinutes(1) }, later.AddMinutes(1), true));
+        Assert.Single(again.GetState().ResetObservations);
+        again.RemoveAccount(account.Id);
+        await store.SaveAlertStateAsync(again.GetState());
+        Assert.Empty((await store.LoadAlertStateAsync()).ResetObservations);
+    }
+
+    [Fact]
+    public async Task InvalidAndDuplicateResetObservationsAreNormalizedOnLoad()
+    {
+        var store = new JsonSettingsStore(new(_directory));
+        var now = DateTimeOffset.UtcNow;
+        var valid = new UsageResetObservation(ProviderKind.Claude, Guid.NewGuid().ToString("N"),
+            "synthetic-identity", "session", now.AddHours(5), now, now);
+        var newer = valid with { FetchedAt = now.AddMinutes(1), ObservedAt = now.AddMinutes(1) };
+        await store.SaveAlertStateAsync(new()
+        {
+            ResetObservations = [null!, valid, newer, valid with { AccountId = "invalid" },
+                valid with { WindowId = "" }, valid with { IdentityKey = "" }, valid with { Provider = (ProviderKind)999 },
+                valid with { ResetsAt = now }, valid with { FetchedAt = now.AddSeconds(1) },
+                valid with { FetchedAt = now.AddMinutes(-6) }, valid with { ObservedAt = default }]
+        });
+        var loaded = await store.LoadAlertStateAsync();
+        Assert.Equal(newer, Assert.Single(loaded.ResetObservations));
+        Assert.Equal(newer, Assert.Single(new UsageAlertEngine(loaded).GetState().ResetObservations));
+    }
+
+    [Fact]
+    public async Task ForecastActivationAndWidgetVisibilityAreIndependentAndLegacySettingsAreOptIn()
+    {
+        var paths = new AppPaths(_directory);
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(paths.SettingsFile, "{\"ShowLastChecked\":true}");
+        var store = new JsonSettingsStore(paths);
+        var legacy = await store.LoadSettingsAsync();
+        Assert.False(legacy.UsageForecastEnabled);
+        Assert.True(legacy.ShowUsageForecast);
+        legacy.UsageForecastEnabled = true;
+        legacy.ShowUsageForecast = false;
+        await store.SaveSettingsAsync(legacy);
+        var restored = await new JsonSettingsStore(paths).LoadSettingsAsync();
+        Assert.True(restored.UsageForecastEnabled);
+        Assert.False(restored.ShowUsageForecast);
+        restored.UsageForecastEnabled = false;
+        await store.SaveSettingsAsync(restored);
+        restored = await store.LoadSettingsAsync();
+        Assert.False(restored.UsageForecastEnabled);
+        Assert.False(restored.ShowUsageForecast);
+    }
+
+    [Fact]
+    public async Task ForecastHistoryRoundTripPreservesTheAbsoluteEstimateAndCanBeCleared()
+    {
+        var store = new JsonSettingsStore(new(_directory));
+        var account = new AccountSettings { IdentityKey = "synthetic-forecast-account" };
+        var now = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var reset = now.AddHours(5);
+        var engine = new UsageForecastEngine();
+        UsageSnapshot Snapshot(int minutes, double used) => new(account.Provider, account.Id, account.IdentityKey,
+            null, now.AddMinutes(minutes), [new("session", "세션", used, reset)]);
+        engine.Observe(account, Snapshot(-20, 20), now.AddMinutes(-20));
+        engine.Observe(account, Snapshot(-10, 30), now.AddMinutes(-10));
+        var latest = Snapshot(0, 40);
+        engine.Observe(account, latest, now);
+        var status = new AccountUsageStatus(account.Id, latest, UsageState.Ready, null, false, null);
+        var expected = engine.GetForecast(account, status, "session", now);
+        Assert.Equal(UsageForecastState.Estimated, expected.State);
+        await store.SaveForecastHistoryAsync(engine.GetHistory(now));
+        var restored = new UsageForecastEngine(await new JsonSettingsStore(new(_directory)).LoadForecastHistoryAsync());
+        Assert.Equal(expected, restored.GetForecast(account, status, "session", now));
+        restored.Clear();
+        await store.SaveForecastHistoryAsync(restored.GetHistory(now));
+        Assert.Empty((await store.LoadForecastHistoryAsync()).Samples);
+    }
+
+    [Fact]
+    public async Task CorruptForecastHistoryRecoversButFutureSchemaIsNotSilentlyOverwritten()
+    {
+        var paths = new AppPaths(_directory);
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(paths.ForecastHistoryFile, "{incomplete");
+        var store = new JsonSettingsStore(paths);
+        Assert.Empty((await store.LoadForecastHistoryAsync()).Samples);
+        Assert.Single(Directory.GetFiles(_directory, "usage-forecast.json.corrupt-*"));
+        await File.WriteAllTextAsync(paths.ForecastHistoryFile, "{\"SchemaVersion\":2}");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.LoadForecastHistoryAsync());
+        Assert.Contains("2", await File.ReadAllTextAsync(paths.ForecastHistoryFile));
+    }
+
+    [Fact]
+    public async Task StatisticsSavingIsIndependentAndMigratesPriorEnabledForecasting()
+    {
+        var paths = new AppPaths(_directory);
+        Directory.CreateDirectory(_directory);
+        var store = new JsonSettingsStore(paths);
+        Assert.False(new AppSettings().SaveUsageStatistics);
+        await File.WriteAllTextAsync(paths.SettingsFile, "{\"UsageForecastEnabled\":true,\"ShowUsageForecast\":false}");
+        var migrated = await store.LoadSettingsAsync();
+        Assert.True(migrated.SaveUsageStatistics);
+        Assert.True(migrated.UsageForecastEnabled);
+        Assert.False(migrated.ShowUsageForecast);
+        migrated.SaveUsageStatistics = false;
+        await store.SaveSettingsAsync(migrated);
+        var restored = await new JsonSettingsStore(paths).LoadSettingsAsync();
+        Assert.False(restored.SaveUsageStatistics);
+        Assert.True(restored.UsageForecastEnabled);
+        restored.SaveUsageStatistics = true;
+        restored.UsageForecastEnabled = false;
+        await store.SaveSettingsAsync(restored);
+        restored = await store.LoadSettingsAsync();
+        Assert.True(restored.SaveUsageStatistics);
+        Assert.False(restored.UsageForecastEnabled);
+        Assert.DoesNotContain("HasStatisticsPreference", await File.ReadAllTextAsync(paths.SettingsFile));
+    }
+
+    [Fact]
+    public async Task StatisticsImportPriorHistoryButExplicitEmptyFileNeverReimportsDeletedRecords()
+    {
+        var paths = new AppPaths(_directory);
+        var store = new JsonSettingsStore(paths);
+        var now = DateTimeOffset.UtcNow.AddSeconds(-1);
+        var sample = new UsageForecastObservation(ProviderKind.Claude, Guid.NewGuid().ToString("N"),
+            "synthetic-statistics", "session", now.AddHours(5), now, 42);
+        await store.SaveForecastHistoryAsync(new() { Samples = [sample] });
+        var imported = Assert.Single((await store.LoadUsageStatisticsAsync()).Samples);
+        Assert.Equal(sample.UsedPercent, imported.UsedPercent);
+        Assert.Equal(sample.FetchedAt, imported.FetchedAt);
+        await store.SaveUsageStatisticsAsync(new() { Samples = [imported] });
+        Assert.Equal(imported, Assert.Single((await new JsonSettingsStore(paths).LoadUsageStatisticsAsync()).Samples));
+        await store.SaveUsageStatisticsAsync(new());
+        Assert.Empty((await new JsonSettingsStore(paths).LoadUsageStatisticsAsync()).Samples);
+        // The prior cache still exists, but cannot undo a deliberate statistics deletion.
+        Assert.Single((await store.LoadForecastHistoryAsync()).Samples);
+    }
+
+    [Fact]
+    public async Task CorruptStatisticsRecoverWithoutReimportingOldForecastData()
+    {
+        var paths = new AppPaths(_directory);
+        Directory.CreateDirectory(_directory);
+        var store = new JsonSettingsStore(paths);
+        await File.WriteAllTextAsync(paths.UsageStatisticsFile, "{broken");
+        Assert.Empty((await store.LoadUsageStatisticsAsync()).Samples);
+        Assert.Single(Directory.GetFiles(_directory, "usage-statistics.json.corrupt-*"));
+        await File.WriteAllTextAsync(paths.UsageStatisticsFile, "{\"SchemaVersion\":99}");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.LoadUsageStatisticsAsync());
+    }
+
     public void Dispose() { if (Directory.Exists(_directory)) Directory.Delete(_directory, true); }
 }

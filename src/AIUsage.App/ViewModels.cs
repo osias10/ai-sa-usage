@@ -49,8 +49,11 @@ public sealed class AsyncCommand(Func<Task> execute, Action<Exception> onError, 
     public void Refresh() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
 }
 
-public sealed class UsageWindowViewModel(UsageWindow source, Func<Brush> accent, Func<bool>? showRemaining = null, Func<int>? warningThreshold = null) : ObservableModel
+public sealed class UsageWindowViewModel(UsageWindow source, Func<Brush> accent, Func<bool>? showRemaining = null,
+    Func<int>? warningThreshold = null, Func<bool>? forecastEnabled = null, Func<bool>? showForecastInWidget = null,
+    Func<string, UsageForecast>? forecast = null, Func<bool>? saveUsageStatistics = null) : ObservableModel
 {
+    private UsageForecast _forecast = new(UsageForecastState.Unavailable);
     public UsageWindow Source { get; } = source;
     public string Id => Source.Id;
     public string Name => Source.Name;
@@ -66,7 +69,65 @@ public sealed class UsageWindowViewModel(UsageWindow source, Func<Brush> accent,
     public string Reset => FormatReset(Source.ResetsAt);
     public string CompactReset => UsageFormatting.CompactRemaining(Source.ResetsAt, DateTimeOffset.UtcNow);
     public string ResetDetail => Source.ResetsAt?.ToLocalTime().ToString("M월 d일 HH:mm:ss 초기화 예정", CultureInfo.GetCultureInfo("ko-KR")) ?? "서비스에서 초기화 시각을 제공하지 않습니다.";
-    public void Tick() { Changed(nameof(Reset)); Changed(nameof(CompactReset)); Changed(nameof(Accent)); }
+    public bool ForecastEnabled => forecastEnabled?.Invoke() == true;
+    public bool ShowForecastInWidget => ForecastEnabled && showForecastInWidget?.Invoke() == true;
+    public string ForecastLabel => _forecast.State switch
+    {
+        UsageForecastState.Collecting => saveUsageStatistics?.Invoke() == true ? "추이 수집 중" : "통계 부족",
+        UsageForecastState.NoGrowth => "사용 증가 없음",
+        UsageForecastState.ResetFirst => "초기화가 먼저",
+        UsageForecastState.Exhausted => "한도 도달",
+        UsageForecastState.Stale => "새 조회 필요",
+        UsageForecastState.Estimated when _forecast.ExhaustsAt is { } at => ForecastRemaining(at),
+        _ => "예측 —"
+    };
+    public string ForecastDetail
+    {
+        get
+        {
+            var explanation = _forecast.State switch
+            {
+                UsageForecastState.Collecting => saveUsageStatistics?.Invoke() == true
+                    ? "최근 1시간 내 정상 조회 3회와 10분 이상의 추이를 수집합니다."
+                    : "사용량 통계 저장을 켜고 정상 조회를 모아 주세요. 최근 1시간 내 조회 3회와 10분 이상의 추이가 필요합니다.",
+                UsageForecastState.NoGrowth => "최근 조회에서 사용량 증가를 확인하지 못했습니다.",
+                UsageForecastState.ResetFirst => "현재 속도에서는 한도 소진보다 다음 초기화가 먼저 예상됩니다.",
+                UsageForecastState.Exhausted => "현재 사용량이 한도에 도달했습니다.",
+                UsageForecastState.Stale => "새로운 정상 조회가 필요합니다. 사용량을 새로고침해 주세요.",
+                UsageForecastState.Estimated when _forecast.ExhaustsAt is { } at => $"소진 예상: {at.ToLocalTime():yyyy/MM/dd HH:mm}",
+                _ => "현재 데이터로 소진 시각을 예상할 수 없습니다."
+            };
+            var details = new List<string> { explanation, "최근 사용 속도가 이어진다는 가정이며 실제 소진 시각은 달라질 수 있습니다." };
+            if (_forecast.SampleCount > 0)
+                details.Add(_forecast.SampleSpan is { } span ? $"관측 {_forecast.SampleCount}회 · {Math.Max(0, span.TotalMinutes):0.#}분" : $"관측 {_forecast.SampleCount}회");
+            if (_forecast.PercentPerHour is { } rate && double.IsFinite(rate)) details.Add($"시간당 약 {rate:0.#}%p 증가");
+            if (_forecast.ObservedAt is { } observed) details.Add($"마지막 관측: {observed.ToLocalTime():MM/dd HH:mm:ss}");
+            details.Add(ResetDetail);
+            return string.Join("\n", details);
+        }
+    }
+    private static string ForecastRemaining(DateTimeOffset at)
+    {
+        var remaining = at - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero) return "예상 시각 지남";
+        if (remaining.TotalMinutes < 1) return "소진 예상 1분 이내";
+        // Round by at most one minute; rounding whole hours or days overstates the estimate.
+        var rounded = TimeSpan.FromMinutes(Math.Ceiling(remaining.TotalMinutes));
+        var duration = rounded.TotalDays >= 1
+            ? rounded.Hours > 0 ? $"{(int)rounded.TotalDays}일 {rounded.Hours}시간" : $"{(int)rounded.TotalDays}일"
+            : rounded.TotalHours >= 1
+                ? rounded.Minutes > 0 ? $"{rounded.Hours}시간 {rounded.Minutes}분" : $"{rounded.Hours}시간"
+                : $"{rounded.Minutes}분";
+        return $"소진 예상 {duration} 후";
+    }
+    public void RefreshForecast()
+    {
+        // Disabled forecasting must not query the history or calculate a result.
+        _forecast = ForecastEnabled ? forecast?.Invoke(Id) ?? new(UsageForecastState.Unavailable) : new(UsageForecastState.Unavailable);
+        Changed(nameof(ForecastEnabled)); Changed(nameof(ShowForecastInWidget));
+        Changed(nameof(ForecastLabel)); Changed(nameof(ForecastDetail));
+    }
+    public void Tick() { Changed(nameof(Reset)); Changed(nameof(CompactReset)); Changed(nameof(Accent)); RefreshForecast(); }
     public void RefreshDisplay()
     {
         Changed(nameof(Value)); Changed(nameof(Percent)); Changed(nameof(DisplayLabel)); Changed(nameof(DisplayDetail)); Changed(nameof(Accent));
@@ -92,6 +153,11 @@ public sealed class UsageAlertViewModel(UsageAlertRule rule, string name, Action
     {
         get => rule.Enabled;
         set { if (rule.Enabled == value) return; rule.Enabled = value; Changed(); onChanged(rule); }
+    }
+    public bool ResetEnabled
+    {
+        get => rule.ResetEnabled;
+        set { if (rule.ResetEnabled == value) return; rule.ResetEnabled = value; Changed(); onChanged(rule); }
     }
     public int ThresholdPercent
     {
@@ -151,6 +217,10 @@ public sealed class AccountViewModel : ObservableModel
     private bool _updatingWindows;
     private bool _showRemaining;
     private bool _showLastChecked = true;
+    private bool _forecastEnabled;
+    private bool _showForecastInWidget = true;
+    private bool _saveUsageStatistics;
+    private Func<string, UsageForecast>? _forecast;
     private bool _pendingWidgetSettingsChange;
     private IReadOnlyList<UsageWindowViewModel> _compactWindows = [];
     public AccountSettings Settings { get; }
@@ -184,6 +254,14 @@ public sealed class AccountViewModel : ObservableModel
     public string DisplayLabel => ShowRemaining ? "잔여량" : "사용량";
     public string DisplayDescription => ShowRemaining ? "숫자와 게이지는 남은 사용량입니다." : "숫자와 게이지는 사용한 비율입니다.";
     public bool ShowLastChecked { get => _showLastChecked; set => Set(ref _showLastChecked, value); }
+    public void ConfigureForecast(bool enabled, bool showInWidget, Func<string, UsageForecast> forecast, bool saveUsageStatistics = false)
+    {
+        _forecastEnabled = enabled;
+        _showForecastInWidget = showInWidget;
+        _saveUsageStatistics = saveUsageStatistics;
+        _forecast = forecast;
+        foreach (var window in Windows.Concat(_compactWindows).Distinct()) window.RefreshForecast();
+    }
     public string Alias
     {
         get => Settings.Alias;
@@ -396,8 +474,15 @@ public sealed class AccountViewModel : ObservableModel
         _pendingWidgetSettingsChange = false;
         _onSettings(this);
     }
-    private UsageWindowViewModel CreateUsageWindow(UsageWindow source) => new(source, () => Accent, () => ShowRemaining,
-        () => Settings.UsageAlerts.FirstOrDefault(rule => rule.WindowId == source.Id && rule.Enabled)?.ThresholdPercent ?? 80);
+    private UsageWindowViewModel CreateUsageWindow(UsageWindow source)
+    {
+        var window = new UsageWindowViewModel(source, () => Accent, () => ShowRemaining,
+            () => Settings.UsageAlerts.FirstOrDefault(rule => rule.WindowId == source.Id && rule.Enabled)?.ThresholdPercent ?? 80,
+            () => _forecastEnabled, () => _showForecastInWidget,
+            id => _forecast?.Invoke(id) ?? new(UsageForecastState.Unavailable), () => _saveUsageStatistics);
+        window.RefreshForecast();
+        return window;
+    }
     private void RebuildUsageAlerts()
     {
         var windows = WidgetWindowCandidates().Where(window => window.Id != "compact:unavailable").DistinctBy(window => window.Id).ToList();

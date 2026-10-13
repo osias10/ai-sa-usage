@@ -18,6 +18,9 @@ public partial class SettingsWindow : Window
     private bool _loaded;
     private bool _updatingTrayChoice;
     private bool _updatingTrayWindowChoice;
+    private bool _updatingForecastChoices;
+    private bool _updatingStatisticsChoice;
+    private bool _clearingStatistics;
     private string? _trayWindowAccountId;
     private readonly DispatcherTimer _transparencySaveTimer;
     private bool _transparencySavePending;
@@ -64,6 +67,8 @@ public partial class SettingsWindow : Window
         ThemeChoice.SelectedIndex = controller.Settings.Theme switch { "Dark" => 1, "Light" => 2, _ => 0 };
         WidgetTransparencySlider.Value = Math.Clamp(controller.Settings.WidgetTransparencyPercent, 0, 100);
         LastCheckedChoice.IsChecked = controller.Settings.ShowLastChecked;
+        RefreshForecastChoices();
+        RefreshUsageStatistics();
         DisplayModeChoice.SelectedIndex = controller.Settings.ShowRemaining ? 1 : 0;
         controller.ViewModel.Accounts.CollectionChanged += TrayAccountsChanged;
         controller.UsageUpdated += TrayContextChanged;
@@ -217,6 +222,83 @@ public partial class SettingsWindow : Window
             _loaded = true;
         }
     }
+    private async void UsageStatisticsChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || _updatingStatisticsChoice) return;
+        try
+        {
+            await _controller.SetUsageStatisticsEnabledAsync(UsageStatisticsChoice.IsChecked == true);
+            if (!_windowClosed) SaveStatus.Text = _controller.IsDemo ? "데모 · 저장되지 않음" : "자동 저장";
+        }
+        catch (Exception error)
+        {
+            _controller.ShowError(error);
+            if (!_windowClosed) { SaveStatus.Text = "설정을 저장하지 못했습니다."; RefreshUsageStatistics(); }
+        }
+    }
+    private async void ClearUsageStatistics(object sender, RoutedEventArgs e)
+    {
+        if (MessageBox.Show(this, "저장된 사용량 통계를 모두 삭제할까요?\n통계 저장과 소진 예상 설정은 유지됩니다.",
+            "통계 삭제", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        try { await ClearUsageStatisticsFromSettingsAsync(); }
+        catch (Exception error)
+        {
+            _controller.ShowError(error);
+            if (!_windowClosed) SaveStatus.Text = "기록을 삭제하지 못했습니다.";
+        }
+    }
+    internal async Task ClearUsageStatisticsFromSettingsAsync()
+    {
+        if (_clearingStatistics) return;
+        _clearingStatistics = true;
+        RefreshUsageStatistics();
+        try
+        {
+            await _controller.ClearUsageStatisticsAsync();
+            if (!_windowClosed) SaveStatus.Text = _controller.IsDemo ? "데모 · 기록 삭제됨" : "기록 삭제됨";
+        }
+        finally
+        {
+            _clearingStatistics = false;
+            if (!_windowClosed) RefreshUsageStatistics();
+        }
+    }
+    private void RefreshUsageStatistics()
+    {
+        _updatingStatisticsChoice = true;
+        try
+        {
+            UsageStatisticsChoice.IsChecked = _controller.Settings.SaveUsageStatistics;
+            var count = _controller.UsageStatisticsCount;
+            UsageStatisticsCountLabel.Text = $"저장된 기록 {count:N0}건";
+            ClearUsageStatisticsButton.IsEnabled = !_clearingStatistics && count > 0;
+        }
+        finally { _updatingStatisticsChoice = false; }
+    }
+    private async void ForecastPreferencesChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || _updatingForecastChoices) return;
+        try
+        {
+            await _controller.SetForecastPreferencesAsync(UsageForecastChoice.IsChecked == true, ShowUsageForecastChoice.IsChecked == true);
+            if (!_windowClosed) SaveStatus.Text = _controller.IsDemo ? "데모 · 저장되지 않음" : "자동 저장";
+        }
+        catch (Exception error)
+        {
+            _controller.ShowError(error);
+            if (!_windowClosed) { SaveStatus.Text = "설정을 저장하지 못했습니다."; RefreshForecastChoices(); }
+        }
+    }
+    private void RefreshForecastChoices()
+    {
+        _updatingForecastChoices = true;
+        try
+        {
+            UsageForecastChoice.IsChecked = _controller.Settings.UsageForecastEnabled;
+            ShowUsageForecastChoice.IsChecked = _controller.Settings.ShowUsageForecast;
+        }
+        finally { _updatingForecastChoices = false; }
+    }
     private async void TrayWindowChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!_loaded || _updatingTrayWindowChoice || _updatingTrayChoice ||
@@ -237,7 +319,7 @@ public partial class SettingsWindow : Window
     }
     private void TrayContextChanged(object? sender, EventArgs e)
     {
-        if (!_windowClosed) RefreshTrayAccounts();
+        if (!_windowClosed) { RefreshTrayAccounts(); RefreshForecastChoices(); RefreshUsageStatistics(); }
     }
     private void TrayAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e) => ObserveTrayAccounts();
     private void ObserveTrayAccounts()

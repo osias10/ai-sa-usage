@@ -123,7 +123,9 @@ internal sealed class TrayService : IDisposable
     private void EnqueueAlerts(IReadOnlyList<UsageAlert> alerts)
     {
         if (_disposed || _controller.IsDemo || alerts.Count == 0) return;
-        _pendingAlerts.Enqueue(alerts);
+        // Reset confirmations use an informational balloon independently of threshold warnings.
+        foreach (var group in alerts.GroupBy(alert => (alert.AccountId, alert.IdentityKey, alert.Kind)))
+            _pendingAlerts.Enqueue(group.ToArray());
         if (!_notificationTimer.IsEnabled) { ShowNextAlert(); _notificationTimer.Start(); }
     }
     private void EnqueueUpdate(ReleaseInfo release) => Application.Current.Dispatcher.BeginInvoke(() =>
@@ -140,23 +142,13 @@ internal sealed class TrayService : IDisposable
             var account = _controller.Settings.Accounts.FirstOrDefault(a => a.Id == first.AccountId && a.IdentityKey == first.IdentityKey);
             if (account is null) continue;
             var status = _controller.GetStatuses().FirstOrDefault(s => s.AccountId == account.Id);
-            var snapshot = status?.Snapshot;
-            var now = DateTimeOffset.UtcNow;
-            if (status?.State != UsageState.Ready || snapshot is null || snapshot.State != UsageState.Ready ||
-                snapshot.IdentityKey != account.IdentityKey || snapshot.Provider != account.Provider ||
-                snapshot.FetchedAt > now || now - snapshot.FetchedAt > UsageAlertEngine.MaximumSnapshotAge) continue;
             // Other account alerts may have been queued for several seconds. Recheck the latest
-            // successful reading instead of displaying a warning that has since become obsolete.
-            var lines = pending.Select(a => snapshot.Windows.FirstOrDefault(w => w.Id == a.WindowId && w.ResetsAt == a.ResetsAt))
-                .OfType<UsageWindow>()
-                .Where(w => w.UsedPercent is { } used && double.IsFinite(used) && used is >= 0 and <= 100 &&
-                    account.UsageAlerts.Any(rule => rule.Enabled && rule.WindowId == w.Id && used >= rule.ThresholdPercent) &&
-                    (w.ResetsAt is null || w.ResetsAt > now))
-                .Select(w => $"{w.Name} · 사용 {w.UsedPercent:0.#}%\n{UsageFormatting.Remaining(w.ResetsAt, now)}").ToArray();
-            if (lines.Length == 0) continue;
-            var message = $"{account.Provider} · {account.Alias}\n" + string.Join("\n", lines);
+            // successful reading and enabled options before presenting a queued notification.
+            var notification = UsageAlertFormatting.Format(account, status, pending, DateTimeOffset.UtcNow);
+            if (notification is null) continue;
             _balloonShowsUpdate = false;
-            _tray.ShowBalloonTip(10000, "AI SA · 사용량 알림", message, Forms.ToolTipIcon.Warning);
+            _tray.ShowBalloonTip(10000, notification.Title, notification.Message,
+                notification.IsWarning ? Forms.ToolTipIcon.Warning : Forms.ToolTipIcon.Info);
             return;
         }
         if (_pendingUpdate is { } release)

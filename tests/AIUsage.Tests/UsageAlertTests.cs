@@ -26,6 +26,7 @@ public sealed class UsageAlertTests
         Assert.Empty(engine.Evaluate(account, Snapshot(account), Now, true));
         account.UsageAlerts.Add(new() { WindowId = "session" });
         Assert.False(account.UsageAlerts[0].Enabled);
+        Assert.False(account.UsageAlerts[0].ResetEnabled);
         Assert.Equal(80, account.UsageAlerts[0].ThresholdPercent);
         Assert.Empty(engine.Evaluate(account, Snapshot(account), Now, true));
         account.UsageAlerts[0].Enabled = true;
@@ -33,6 +34,7 @@ public sealed class UsageAlertTests
         var alert = Assert.Single(engine.Evaluate(account, Snapshot(account), Now, true));
         Assert.Equal(80, alert.UsedPercent);
         Assert.Equal("현재 세션", alert.WindowName);
+        Assert.Equal(UsageAlertKind.Threshold, alert.Kind);
     }
 
     [Fact]

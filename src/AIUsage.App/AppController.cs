@@ -20,6 +20,10 @@ public sealed class AppController : IAsyncDisposable
     private readonly DispatcherTimer _clock;
     private readonly IDisposable? _runtime;
     private readonly UsageAlertEngine _alerts;
+    private readonly UsageForecastEngine _forecast;
+    private readonly UsageStatistics _statistics;
+    private bool _clearingUsageStatistics;
+    public int UsageStatisticsCount => _statistics.Count(DateTimeOffset.UtcNow);
     private readonly Dictionary<string, UsageSnapshot?> _observedSnapshots = [];
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
@@ -53,15 +57,24 @@ public sealed class AppController : IAsyncDisposable
     }
 
     private AppController(AppSettings settings, JsonSettingsStore store, IEnumerable<IUsageProvider> providers,
-        IReadOnlyList<UsageSnapshot> snapshots, bool demo, IDisposable? runtime = null, UsageAlertState? alertState = null)
+        IReadOnlyList<UsageSnapshot> snapshots, bool demo, IDisposable? runtime = null, UsageAlertState? alertState = null,
+        UsageStatisticsHistory? statisticsHistory = null)
     {
         Settings = settings;
         _store = store;
         IsDemo = demo;
         _runtime = runtime;
         _alerts = new UsageAlertEngine(alertState);
+        _statistics = new UsageStatistics(statisticsHistory);
+        _forecast = new UsageForecastEngine(_statistics.GetForecastHistory(DateTimeOffset.UtcNow));
         _coordinator = new UsageCoordinator(providers, settings.Accounts, snapshots);
-        foreach (var account in settings.Accounts) _observedSnapshots[account.Id] = _coordinator.GetStatus(account.Id).Snapshot;
+        foreach (var account in settings.Accounts)
+        {
+            _observedSnapshots[account.Id] = _coordinator.GetStatus(account.Id).Snapshot;
+            _alerts.SynchronizeSettings(account);
+            _forecast.SynchronizeAccount(account);
+            _statistics.SynchronizeAccount(account);
+        }
         ViewModel = new MainViewModel
         {
             IsDemo = demo,
@@ -91,7 +104,7 @@ public sealed class AppController : IAsyncDisposable
             _updateHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
             _downloadHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
             Updates = new AppUpdateService(new UpdateChecker(_updateHttp), new UpdateDownloader(_downloadHttp, paths.UpdatesDirectory),
-                source, Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 4, 6), paths.UpdateStateFile);
+                source, Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0), paths.UpdateStateFile);
             SystemEvents.PowerModeChanged += PowerChanged;
             SystemEvents.TimeChanged += TimeChanged;
             SystemEvents.UserPreferenceChanged += UserPreferenceChanged;
@@ -127,11 +140,12 @@ public sealed class AppController : IAsyncDisposable
         loaded.StartWithWindows = StartupManager.IsEnabled();
         var cached = await store.LoadSnapshotsAsync();
         var alertState = await store.LoadAlertStateAsync();
+        var statisticsHistory = await store.LoadUsageStatisticsAsync();
         var runtime = new RuntimeManager(paths);
         var runner = new ProcessRunner();
         var login = new DesktopLoginInteraction();
         IUsageProvider[] providers = [new ClaudeUsageProvider(paths, runtime, runner, login), new CodexUsageProvider(paths, runtime, runner, login), new AntigravityUsageProvider(paths, runtime, runner, login)];
-        var controller = new AppController(loaded, store, providers, cached, false, runtime, alertState);
+        var controller = new AppController(loaded, store, providers, cached, false, runtime, alertState, statisticsHistory);
         if (store.LastWarning is not null) controller.ViewModel.Error = store.LastWarning;
         return controller;
     }
@@ -140,6 +154,7 @@ public sealed class AppController : IAsyncDisposable
         var vm = new AccountViewModel(account, RefreshAccountAsync, ConnectAccountAsync, RemoveAccountAsync, AccountSettingsChanged, Reorder, CancelConnection, ShowError);
         vm.ShowRemaining = Settings.ShowRemaining;
         vm.ShowLastChecked = Settings.ShowLastChecked;
+        ConfigureForecast(vm);
         vm.Apply(_coordinator.GetStatus(account.Id));
         return vm;
     }
@@ -209,6 +224,7 @@ public sealed class AppController : IAsyncDisposable
                 await SaveSettingsAsync();
                 await SaveSnapshotsAsync();
                 await SaveAlertStateAsync();
+                await SaveUsageStatisticsAsync();
             },
             installer =>
             {
@@ -286,6 +302,8 @@ public sealed class AppController : IAsyncDisposable
         Settings.Accounts.Remove(account.Settings);
         if (Settings.TrayAccountId == account.Id) Settings.TrayAccountId = null;
         _alerts.RemoveAccount(account.Id);
+        _forecast.RemoveAccount(account.Id);
+        _statistics.RemoveAccount(account.Id);
         _observedSnapshots.Remove(account.Id);
         ViewModel.Accounts.Remove(account);
         ViewModel.RefreshCollections();
@@ -293,10 +311,22 @@ public sealed class AppController : IAsyncDisposable
         await SaveSettingsAsync();
         await SaveSnapshotsAsync();
         await SaveAlertStateAsync();
+        await SaveUsageStatisticsAsync();
     }
     private async void AccountSettingsChanged(AccountViewModel account)
     {
-        try { _coordinator.UpdateAccount(account.Settings); ViewModel.RefreshCollections(); UsageUpdated?.Invoke(this, EventArgs.Empty); await SaveSettingsAsync(); }
+        try
+        {
+            _alerts.SynchronizeSettings(account.Settings);
+            _forecast.SynchronizeAccount(account.Settings);
+            _statistics.SynchronizeAccount(account.Settings);
+            _coordinator.UpdateAccount(account.Settings);
+            ViewModel.RefreshCollections();
+            UsageUpdated?.Invoke(this, EventArgs.Empty);
+            await SaveSettingsAsync();
+            await SaveAlertStateAsync();
+            await SaveUsageStatisticsAsync();
+        }
         catch (Exception ex) { ShowError(ex); }
     }
     private async void Reorder(AccountViewModel account, int delta)
@@ -337,6 +367,56 @@ public sealed class AppController : IAsyncDisposable
         Settings.WidgetTransparencyPercent = percent;
         WidgetAppearanceUpdated?.Invoke(this, EventArgs.Empty);
     }
+    public UsageForecast GetForecast(AccountSettings account, string windowId)
+    {
+        if (!Settings.UsageForecastEnabled) return new(UsageForecastState.Unavailable);
+        try { return _forecast.GetForecast(account, _coordinator.GetStatus(account.Id), windowId, DateTimeOffset.UtcNow); }
+        catch (KeyNotFoundException) { return new(UsageForecastState.Unavailable); }
+    }
+    private void ConfigureForecast(AccountViewModel account) => account.ConfigureForecast(
+        Settings.UsageForecastEnabled, Settings.ShowUsageForecast, id => GetForecast(account.Settings, id), Settings.SaveUsageStatistics);
+    public async Task SetUsageStatisticsEnabledAsync(bool enabled)
+    {
+        var previous = Settings.SaveUsageStatistics;
+        Settings.SaveUsageStatistics = enabled;
+        try { await SaveSettingsAsync(); }
+        catch { Settings.SaveUsageStatistics = previous; throw; }
+        foreach (var account in ViewModel.Accounts) ConfigureForecast(account);
+        ViewModel.Tick();
+        PreferencesUpdated?.Invoke(this, EventArgs.Empty);
+    }
+    public async Task ClearUsageStatisticsAsync()
+    {
+        if (_clearingUsageStatistics) return;
+        _clearingUsageStatistics = true;
+        try
+        {
+            _statistics.Clear();
+            _forecast.Clear();
+            ViewModel.Tick();
+            UsageUpdated?.Invoke(this, EventArgs.Empty);
+            // An empty statistics file also prevents re-importing the previous forecast cache.
+            await SaveUsageStatisticsAsync();
+            if (!IsDemo) await _store.SaveForecastHistoryAsync(new());
+        }
+        finally { _clearingUsageStatistics = false; }
+    }
+    public async Task SetForecastPreferencesAsync(bool enabled, bool showInWidget)
+    {
+        var previous = (Settings.UsageForecastEnabled, Settings.ShowUsageForecast);
+        Settings.UsageForecastEnabled = enabled;
+        Settings.ShowUsageForecast = showInWidget;
+        try { await SaveSettingsAsync(); }
+        catch
+        {
+            Settings.UsageForecastEnabled = previous.UsageForecastEnabled;
+            Settings.ShowUsageForecast = previous.ShowUsageForecast;
+            throw;
+        }
+        foreach (var account in ViewModel.Accounts) ConfigureForecast(account);
+        ViewModel.Tick();
+        PreferencesUpdated?.Invoke(this, EventArgs.Empty);
+    }
     public async Task SetTrayWindowAsync(string accountId, WidgetWindowSelection? selection)
     {
         var account = Settings.Accounts.FirstOrDefault(candidate => candidate.Id == accountId);
@@ -361,16 +441,35 @@ public sealed class AppController : IAsyncDisposable
                 {
                     var account = Settings.Accounts.FirstOrDefault(a => a.Id == e.Status.AccountId);
                     var snapshot = e.Status.Snapshot;
+                    if (account is not null)
+                    {
+                        _forecast.SynchronizeAccount(account);
+                        _statistics.SynchronizeAccount(account);
+                    }
                     _observedSnapshots.TryGetValue(e.Status.AccountId, out var previous);
                     if (account is not null && e.Status.State == UsageState.Ready && snapshot is not null && !ReferenceEquals(previous, snapshot))
                     {
                         // Cached snapshots and preference-change events must never trigger alerts.
                         _observedSnapshots[account.Id] = snapshot;
+                        if (Settings.SaveUsageStatistics && !_clearingUsageStatistics && _statistics.Observe(account, snapshot, DateTimeOffset.UtcNow))
+                        {
+                            // Forecasts consume the saved series even when their display/calculation was disabled.
+                            _forecast.Observe(account, snapshot, DateTimeOffset.UtcNow);
+                            ViewModel.Tick();
+                            UsageUpdated?.Invoke(this, EventArgs.Empty);
+                            try { await SaveUsageStatisticsAsync(); }
+                            catch (Exception error)
+                            {
+                                // Statistics storage must not interrupt usage alerts or the last-good cache.
+                                ShowError(new InvalidOperationException("사용량 통계를 저장하지 못했습니다.", error));
+                            }
+                        }
                         var alerts = _alerts.Evaluate(account, snapshot, DateTimeOffset.UtcNow, isFresh: true);
+                        // Keep the reset baseline even when this read produces no notification.
+                        // Persist both observations and delivery receipts before showing alerts.
+                        await SaveAlertStateAsync();
                         if (alerts.Count > 0 && !IsDemo)
                         {
-                            // Persist the deduplication ledger before notifying, including across restarts.
-                            await SaveAlertStateAsync();
                             if (!_disposed && Settings.Accounts.Any(a => a.Id == account.Id && a.IdentityKey == snapshot.IdentityKey))
                                 UsageAlertsRaised?.Invoke(alerts);
                         }
@@ -384,6 +483,7 @@ public sealed class AppController : IAsyncDisposable
     public Task SaveSettingsAsync() => IsDemo ? Task.CompletedTask : _store.SaveSettingsAsync(Settings);
     private Task SaveSnapshotsAsync() => IsDemo ? Task.CompletedTask : _store.SaveSnapshotsAsync(_coordinator.GetSnapshots());
     private Task SaveAlertStateAsync() => IsDemo ? Task.CompletedTask : _store.SaveAlertStateAsync(_alerts.GetState());
+    private Task SaveUsageStatisticsAsync() => IsDemo ? Task.CompletedTask : _store.SaveUsageStatisticsAsync(_statistics.GetHistory(DateTimeOffset.UtcNow));
     public void ShowError(Exception error)
     {
         if (error is OperationCanceledException) return;
@@ -427,6 +527,7 @@ public sealed class AppController : IAsyncDisposable
             await SaveSettingsAsync();
             await SaveSnapshotsAsync();
             await SaveAlertStateAsync();
+            await SaveUsageStatisticsAsync();
         }
         _runtime?.Dispose();
         _shutdown.Dispose();

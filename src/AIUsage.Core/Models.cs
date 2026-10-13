@@ -28,6 +28,7 @@ public sealed class UsageAlertRule
     public string WindowId { get; set; } = "";
     public bool Enabled { get; set; }
     public int ThresholdPercent { get; set; } = 80;
+    public bool ResetEnabled { get; set; }
 }
 
 public sealed record UsageWindow(string Id, string Name, double? UsedPercent, DateTimeOffset? ResetsAt, bool IsPrimary = false);
@@ -48,6 +49,15 @@ public sealed class AppSettings
     public bool AutoCheckUpdates { get; set; } = true;
     public bool ShowRemaining { get; set; }
     public bool ShowLastChecked { get; set; } = true;
+    public bool UsageForecastEnabled { get; set; }
+    private bool _saveUsageStatistics;
+    public bool SaveUsageStatistics
+    {
+        get => _saveUsageStatistics;
+        set { _saveUsageStatistics = value; HasStatisticsPreference = true; }
+    }
+    internal bool HasStatisticsPreference { get; private set; }
+    public bool ShowUsageForecast { get; set; } = true;
     public string? TrayAccountId { get; set; }
     public string Theme { get; set; } = "System";
     public int WidgetTransparencyPercent { get; set; } = 10;
@@ -107,6 +117,8 @@ public sealed class AppPaths
     public string SettingsFile => Path.Combine(Root, "settings.json");
     public string CacheFile => Path.Combine(Root, "usage-cache.json");
     public string AlertStateFile => Path.Combine(Root, "usage-alerts.json");
+    public string ForecastHistoryFile => Path.Combine(Root, "usage-forecast.json");
+    public string UsageStatisticsFile => Path.Combine(Root, "usage-statistics.json");
     public string UpdateStateFile => Path.Combine(Root, "update-state.json");
     public string UpdatesDirectory => Path.Combine(Root, "updates");
     public string Runtimes => Path.Combine(Root, "runtimes");

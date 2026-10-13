@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     private HwndSource? _source;
     private bool _ready;
     private bool _showLastChecked;
+    private bool _showForecast;
     private bool _layoutPending;
     private string _layoutKey = "";
     internal bool AllowClose { get; set; }
@@ -27,6 +28,7 @@ public partial class MainWindow : Window
     {
         _controller = controller;
         _showLastChecked = controller.Settings.ShowLastChecked;
+        _showForecast = controller.Settings.UsageForecastEnabled && controller.Settings.ShowUsageForecast;
         InitializeComponent();
         DataContext = controller.ViewModel;
         ApplyTransparency();
@@ -86,7 +88,7 @@ public partial class MainWindow : Window
 
     private void UsageUpdated(object? sender, EventArgs e) => QueueLayoutUpdate();
 
-    private string LayoutKey() => string.Join("|", _controller.ViewModel.PinnedAccounts.Select(account =>
+    private string LayoutKey() => (_controller.Settings.UsageForecastEnabled && _controller.Settings.ShowUsageForecast) + "|" + string.Join("|", _controller.ViewModel.PinnedAccounts.Select(account =>
         account.Id + ":" + account.HasWindows + ":" + account.CanCancelConnection + ":" +
         string.Join(",", account.CompactWindows.Select(window => window.Id))));
 
@@ -112,7 +114,9 @@ public partial class MainWindow : Window
         // The fitted height follows the selected rows. Keep the resize minimum small
         // so long lists can still scroll on a short display.
         var baseHeight = 44 + (_controller.IsDemo ? 13 : 0);
-        MinHeight = baseHeight + (_controller.Settings.ShowLastChecked && _controller.ViewModel.PinnedAccounts.Count > 0 ? 13 : 0);
+        var hasAccounts = _controller.ViewModel.PinnedAccounts.Count > 0;
+        MinHeight = baseHeight + (_controller.Settings.ShowLastChecked && hasAccounts ? 13 : 0)
+            + (_controller.Settings.UsageForecastEnabled && _controller.Settings.ShowUsageForecast && hasAccounts ? 12 : 0);
     }
 
     private void ApplyPreferences()
@@ -120,10 +124,12 @@ public partial class MainWindow : Window
         ApplyTransparency();
         Topmost = _controller.Settings.AlwaysOnTop;
         ResizeMode = _controller.Settings.PositionLocked ? ResizeMode.NoResize : ResizeMode.CanResizeWithGrip;
-        var changed = _showLastChecked != _controller.Settings.ShowLastChecked;
+        var showForecast = _controller.Settings.UsageForecastEnabled && _controller.Settings.ShowUsageForecast;
+        var changed = _showLastChecked != _controller.Settings.ShowLastChecked || _showForecast != showForecast;
         _showLastChecked = _controller.Settings.ShowLastChecked;
+        _showForecast = showForecast;
         UpdateMinimumHeight();
-        if (changed && _ready) FitHeight();
+        if (changed && _ready) { _layoutKey = LayoutKey(); FitHeight(); }
     }
 
     private void WidgetKeyDown(object sender, KeyEventArgs e)

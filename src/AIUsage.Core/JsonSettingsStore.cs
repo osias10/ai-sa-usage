@@ -18,6 +18,8 @@ public sealed class JsonSettingsStore(AppPaths paths)
     {
         var settings = await LoadAsync<AppSettings>(paths.SettingsFile, cancellationToken).ConfigureAwait(false) ?? new();
         if (settings.SchemaVersion > 1) throw new InvalidOperationException("새 버전에서 저장한 설정입니다. 앱을 업데이트해 주세요.");
+        // Older forecasting settings also enabled collection. Preserve that explicit choice on upgrade.
+        if (!settings.HasStatisticsPreference) settings.SaveUsageStatistics = settings.UsageForecastEnabled;
         settings.Accounts ??= [];
         settings.Placements ??= [];
         settings.WidgetTransparencyPercent = Math.Clamp(settings.WidgetTransparencyPercent, 0, 100);
@@ -59,10 +61,37 @@ public sealed class JsonSettingsStore(AppPaths paths)
         var state = await LoadAsync<UsageAlertState>(paths.AlertStateFile, cancellationToken).ConfigureAwait(false) ?? new();
         if (state.SchemaVersion > 1) throw new InvalidOperationException("새 버전에서 저장한 알림 상태입니다. 앱을 업데이트해 주세요.");
         state.Deliveries = (state.Deliveries ?? []).Where(UsageAlertEngine.IsValidDelivery).Distinct().ToList();
+        state.ResetObservations = UsageAlertEngine.NormalizeResetObservations(state.ResetObservations);
         return state;
     }
     public Task SaveAlertStateAsync(UsageAlertState state, CancellationToken cancellationToken = default)
         => SaveAsync(paths.AlertStateFile, state, cancellationToken);
+
+    public async Task<UsageForecastHistory> LoadForecastHistoryAsync(CancellationToken cancellationToken = default)
+    {
+        var history = await LoadAsync<UsageForecastHistory>(paths.ForecastHistoryFile, cancellationToken).ConfigureAwait(false);
+        return new UsageForecastEngine(history).GetHistory(DateTimeOffset.UtcNow);
+    }
+    public Task SaveForecastHistoryAsync(UsageForecastHistory history, CancellationToken cancellationToken = default)
+        => SaveAsync(paths.ForecastHistoryFile, history, cancellationToken);
+
+    public async Task<UsageStatisticsHistory> LoadUsageStatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        UsageStatisticsHistory? history;
+        if (File.Exists(paths.UsageStatisticsFile))
+            history = await LoadAsync<UsageStatisticsHistory>(paths.UsageStatisticsFile, cancellationToken).ConfigureAwait(false);
+        else
+        {
+            // Import the prior forecast cache only until a statistics file (including an empty one) exists.
+            var legacy = await LoadForecastHistoryAsync(cancellationToken).ConfigureAwait(false);
+            history = new() { Samples = legacy.Samples.Select(sample => new UsageStatisticSample(sample.Provider,
+                sample.AccountId, sample.IdentityKey, sample.WindowId, sample.WindowId, sample.UsedPercent,
+                sample.ResetsAt, sample.FetchedAt)).ToList() };
+        }
+        return new UsageStatistics(history).GetHistory(DateTimeOffset.UtcNow);
+    }
+    public Task SaveUsageStatisticsAsync(UsageStatisticsHistory history, CancellationToken cancellationToken = default)
+        => SaveAsync(paths.UsageStatisticsFile, history, cancellationToken);
 
     private async Task<T?> LoadAsync<T>(string file, CancellationToken cancellationToken)
     {

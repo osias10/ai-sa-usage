@@ -89,6 +89,8 @@ public partial class App : Application
                 accountOptions.IsExpanded = true;
                 await Dispatcher.InvokeAsync(settings.UpdateLayout, DispatcherPriority.ApplicationIdle);
                 await VerifyStatusIndicatorsAsync(window, settings, claude);
+                await VerifyResetAlertSettingsAsync(settings, claude);
+                await VerifyForecastAsync(window, settings, claude);
                 var menuButton = VisualChildren<System.Windows.Controls.Button>(settings).First(button => ReferenceEquals(button.DataContext, claude) && button.ContextMenu is not null);
                 menuButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Dispatcher.InvokeAsync(settings.UpdateLayout, DispatcherPriority.ApplicationIdle);

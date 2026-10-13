@@ -91,8 +91,8 @@
           <ItemsControl ItemsSource="{Binding CompactWindows}">
            <ItemsControl.ItemTemplate>
             <DataTemplate>
-             <Grid Height="20" ToolTip="{Binding DisplayDetail}" AutomationProperties.Name="{Binding Name}">
-              <Grid.RowDefinitions><RowDefinition Height="17" /><RowDefinition Height="3" /></Grid.RowDefinitions>
+             <Grid MinHeight="20" ToolTip="{Binding DisplayDetail}" AutomationProperties.Name="{Binding Name}">
+              <Grid.RowDefinitions><RowDefinition Height="17" /><RowDefinition Height="3" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
               <Grid.ColumnDefinitions><ColumnDefinition Width="39" /><ColumnDefinition Width="37" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
               <TextBlock Text="{Binding CompactName}" FontSize="9" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" />
               <TextBlock Grid.Column="1" Text="{Binding Percent}" FontSize="11" FontWeight="Medium" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" HorizontalAlignment="Right" ToolTip="{Binding DisplayDetail}" />
@@ -102,6 +102,10 @@
                Value="{Binding Value, Mode=OneWay}" Foreground="{Binding Accent}" Background="{DynamicResource TrackBrush}"
                Visibility="{Binding HasValue, Converter={StaticResource BoolVisibility}}" IsHitTestVisible="False"
                AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="{Binding DisplayDetail}" />
+              <TextBlock x:Name="WidgetForecastLabel" Grid.Row="2" Grid.ColumnSpan="3" Text="{Binding ForecastLabel}"
+               Height="12" FontSize="8" LineHeight="12" LineStackingStrategy="BlockLineHeight" Foreground="{DynamicResource MutedBrush}"
+               TextAlignment="Right" TextTrimming="CharacterEllipsis" ToolTip="{Binding ForecastDetail}"
+               Visibility="{Binding ShowForecastInWidget, Converter={StaticResource BoolVisibility}}" AutomationProperties.HelpText="{Binding ForecastDetail}" />
              </Grid>
             </DataTemplate>
            </ItemsControl.ItemTemplate>

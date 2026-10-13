@@ -113,7 +113,7 @@
              <ItemsControl.ItemTemplate>
               <DataTemplate>
                <Grid Margin="0,5">
-                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="72" /><ColumnDefinition Width="180" /></Grid.ColumnDefinitions>
                 <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" VerticalAlignment="Center" Margin="0,0,12,0" />
                 <TextBlock Grid.Column="1" Text="{Binding Percent}" FontSize="12" FontWeight="Medium" HorizontalAlignment="Right"
@@ -123,6 +123,9 @@
                 <ProgressBar Grid.Row="1" Grid.ColumnSpan="3" Height="2" Margin="0,5,0,0" Value="{Binding Value, Mode=OneWay}"
                  Foreground="{Binding Accent}" Visibility="{Binding HasValue, Converter={StaticResource BoolVisibility}}"
                  ToolTip="{Binding DisplayDetail}" AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="{Binding DisplayDetail}" />
+                <TextBlock x:Name="AccountForecastLabel" Grid.Row="2" Grid.ColumnSpan="3" Text="{Binding ForecastLabel}" Margin="0,5,0,0"
+                 FontSize="10" Foreground="{DynamicResource MutedBrush}" ToolTip="{Binding ForecastDetail}"
+                 Visibility="{Binding ForecastEnabled, Converter={StaticResource BoolVisibility}}" AutomationProperties.HelpText="{Binding ForecastDetail}" />
                </Grid>
               </DataTemplate>
              </ItemsControl.ItemTemplate>
@@ -167,19 +170,25 @@
              <StackPanel Margin="0,22,0,0">
               <TextBlock Text="한도별 알림" FontSize="12" FontWeight="Medium" />
               <TextBlock Text="설정한 사용률에 도달하면 알립니다. 잔여량 표시와 관계없이 사용량 기준입니다."
-               FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,8" />
+               FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,6,0,3" />
+              <TextBlock Text="초기화 알림은 새 조회에서 초기화가 확인되면 알려줍니다."
+               FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
               <ItemsControl ItemsSource="{Binding UsageAlerts}">
                <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                 <Grid Margin="0,5">
+                 <Grid Margin="0,6">
+                  <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                   <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="64" /><ColumnDefinition Width="68" /><ColumnDefinition Width="50" /></Grid.ColumnDefinitions>
-                  <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" Margin="0,0,12,0" />
+                  <TextBlock Text="{Binding Name}" FontSize="12" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" Margin="0,0,12,0" AutomationProperties.AutomationId="UsageAlertName" />
                   <TextBox Grid.Column="1" Style="{StaticResource SettingsNumericTextBox}" IsEnabled="{Binding Enabled}" AutomationProperties.Name="알림 임계 사용률" AutomationProperties.AutomationId="UsageAlertThreshold" AutomationProperties.HelpText="1~100%">
                    <TextBox.Text><Binding Path="ThresholdPercent" UpdateSourceTrigger="LostFocus"><Binding.ValidationRules><local:AlertThresholdRule /></Binding.ValidationRules></Binding></TextBox.Text>
                   </TextBox>
                   <TextBlock Grid.Column="2" Text="% 사용 시" FontSize="11" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" Margin="7,0,0,0" />
                   <CheckBox Grid.Column="3" Style="{StaticResource SettingsSwitch}" IsChecked="{Binding Enabled}" VerticalAlignment="Center"
-                   AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="사용량 알림" />
+                   AutomationProperties.Name="{Binding Name}" AutomationProperties.AutomationId="UsageThresholdEnabled" AutomationProperties.HelpText="사용량 알림" />
+                  <CheckBox Grid.Row="1" Grid.ColumnSpan="4" Content="초기화 알림" Style="{StaticResource SettingsSwitch}" IsChecked="{Binding ResetEnabled, Mode=TwoWay}"
+                   FontSize="11" Margin="0,4,0,0" AutomationProperties.Name="{Binding Name, StringFormat={}{0} 초기화 알림}"
+                   AutomationProperties.AutomationId="UsageResetEnabled" AutomationProperties.HelpText="새 조회에서 초기화가 확인되면 알림" />
                  </Grid>
                 </DataTemplate>
                </ItemsControl.ItemTemplate>
@@ -224,6 +233,45 @@
          <ComboBoxItem Content="사용량" /><ComboBoxItem Content="잔여량" />
         </ComboBox>
        </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <StackPanel>
+        <Grid>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+         <StackPanel Margin="0,0,24,0">
+          <TextBlock Text="사용량 통계 저장" FontSize="13" />
+          <TextBlock Text="정상 새로고침마다 사용량을 이 PC에 저장하고 24시간 보관합니다. 끄면 새 저장만 멈추며 기존 기록은 유지합니다."
+           Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+         </StackPanel>
+         <CheckBox x:Name="UsageStatisticsChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}"
+          Checked="UsageStatisticsChanged" Unchecked="UsageStatisticsChanged" VerticalAlignment="Center" AutomationProperties.Name="사용량 통계 저장" />
+        </Grid>
+        <Grid Margin="0,13,0,0">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+         <TextBlock x:Name="UsageStatisticsCountLabel" Foreground="{DynamicResource SubtleBrush}" FontSize="11" VerticalAlignment="Center" />
+         <Button x:Name="ClearUsageStatisticsButton" Grid.Column="1" Content="기록 삭제" Style="{StaticResource SettingsButton}"
+          Click="ClearUsageStatistics" AutomationProperties.Name="저장된 사용량 통계 삭제" />
+        </Grid>
+       </StackPanel>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <StackPanel>
+        <Grid>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+         <StackPanel Margin="0,0,24,0">
+          <TextBlock Text="소진 예상" FontSize="13" />
+          <TextBlock Text="최근 사용 속도로 한도 소진 시각을 예상합니다. 계정 탭에서 결과를 확인할 수 있습니다."
+           Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+         </StackPanel>
+         <CheckBox x:Name="UsageForecastChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}"
+          Checked="ForecastPreferencesChanged" Unchecked="ForecastPreferencesChanged" VerticalAlignment="Center" AutomationProperties.Name="소진 예상" />
+        </Grid>
+        <CheckBox x:Name="ShowUsageForecastChoice" Content="위젯에 예상 표시" Style="{StaticResource SettingsSwitch}" Margin="0,13,0,0"
+         IsEnabled="{Binding IsChecked, ElementName=UsageForecastChoice}" Checked="ForecastPreferencesChanged" Unchecked="ForecastPreferencesChanged"
+         AutomationProperties.Name="위젯에 예상 표시" />
+        <TextBlock Text="소진 예상을 꺼도 통계 저장 설정과 기존 기록은 유지합니다."
+         Foreground="{DynamicResource SubtleBrush}" FontSize="11" Margin="0,8,0,0" TextWrapping="Wrap" />
+       </StackPanel>
       </Border>
       <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
        <Grid>

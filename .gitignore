@@ -38,6 +38,10 @@ id_ed25519
 /usage-cache.json.*
 /usage-alerts.json
 /usage-alerts.json.*
+/usage-forecast.json
+/usage-forecast.json.*
+/usage-statistics.json
+/usage-statistics.json.*
 /update-state.json
 /update-state.json.*
 /updates/

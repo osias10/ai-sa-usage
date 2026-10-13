@@ -6,7 +6,7 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · Preview 0.4.6
+Windows 11 x64 · Desktop widget & system tray · Preview 0.4.9
 
 ## Screenshots
 
@@ -27,7 +27,12 @@ Screenshots use demo data in the Korean UI. No real account information is shown
 - **A separate tray choice.** Keep session and weekly usage in the widget while showing Fable—or another limit—as the tray number.
 - **Stay up to date.** Refresh an account or all accounts manually, or set an automatic interval from 1 minute to 24 hours.
 - **Alerts at your chosen threshold.** Enable notifications for individual limits and choose the usage percentage that triggers them.
+- **Reset notifications.** In **Settings → Accounts → Account settings → Limit alerts (한도별 알림)**, enable **초기화 알림** for each limit you want to track. A fresh usage check confirms the reset before notifying you once. Reset alerts are off by default and independent of usage threshold alerts.
+- **Time-to-limit estimates.** Enable **소진 예상** in **Settings → Widget** to estimate when each limit will run out from recent usage. **위젯에 예상 표시** controls the widget line separately; results remain available in account settings. Forecasting is off by default.
+- **Save usage statistics.** Enable **사용량 통계 저장** in **Settings → Widget** to record every successful refresh. Saving, forecasting, and widget display are independent. Turning saving off keeps existing records; **기록 삭제** clears them explicitly.
 - **Fit your desktop.** Adjust the size and transparency of the whole widget, use light or dark themes, keep it on top, or lock its position.
+
+Forecasts use saved statistics and need at least three checks spanning ten minutes with a measurable usage increase. They assume your current pace continues and distinguish an earlier reset or insufficient data. Records stay on your PC for up to 24 hours. Turning saving off stops new records; turning forecasting off stops calculation.
 
 The widget stays out of Alt+Tab and the taskbar. It fits its height to the contents when it opens, while keeping your saved width and position. Settings open in a separate window, and optional startup brings AI SA back when you sign in to Windows.
 
