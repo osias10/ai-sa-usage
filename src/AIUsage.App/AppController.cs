@@ -104,13 +104,17 @@ public sealed class AppController : IAsyncDisposable
             _updateHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
             _downloadHttp = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = Timeout.InfiniteTimeSpan };
             Updates = new AppUpdateService(new UpdateChecker(_updateHttp), new UpdateDownloader(_downloadHttp, paths.UpdatesDirectory),
-                source, Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0), paths.UpdateStateFile);
+                source, InstalledReleaseVersion, paths.UpdateStateFile);
             SystemEvents.PowerModeChanged += PowerChanged;
             SystemEvents.TimeChanged += TimeChanged;
             SystemEvents.UserPreferenceChanged += UserPreferenceChanged;
             NetworkChange.NetworkAvailabilityChanged += NetworkChanged;
         }
     }
+
+    internal static ReleaseVersion InstalledReleaseVersion => ReleaseVersion.Parse(
+        Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+        ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0");
 
     public static async Task<AppController> CreateAsync(bool demo, bool mini, bool light)
     {
@@ -133,6 +137,11 @@ public sealed class AppController : IAsyncDisposable
                     _ => [new("pro", "Gemini Pro", 16, now.AddHours(4).AddMinutes(5), true), new("flash", "Gemini Flash", 8, now.AddHours(4).AddMinutes(5))]
                 })).ToArray();
             return new AppController(settings, store, Enum.GetValues<ProviderKind>().Select(kind => new DemoProvider(kind, snapshots)), snapshots, true);
+        }
+        try { new UpdateDataBackup(paths).CleanupExpired(); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            // Locked backup files can be cleaned on the next launch; usage tracking remains available.
         }
         var loaded = await store.LoadSettingsAsync();
         // Uninstall keeps preferences but removes startup registration. Reflect the
@@ -164,7 +173,8 @@ public sealed class AppController : IAsyncDisposable
         if (!IsDemo)
         {
             _coordinator.Start();
-            _updateInitialization = Updates!.InitializeAsync(Settings.AutoCheckUpdates, _shutdown.Token);
+            _updateInitialization = Updates!.InitializeAsync(Settings.AutoCheckUpdates,
+                Settings.IncludePrereleaseUpdates ? UpdateChannel.Preview : UpdateChannel.Stable, _shutdown.Token);
         }
     }
     public void ShowSettings()
@@ -202,6 +212,17 @@ public sealed class AppController : IAsyncDisposable
         catch { Settings.AutoCheckUpdates = previous; throw; }
         Updates?.SetAutoCheckEnabled(enabled);
     }
+    public async Task SetIncludePrereleaseUpdatesAsync(bool enabled)
+    {
+        if (_preparingUpdate) throw new InvalidOperationException("설치 준비가 끝난 뒤 변경해 주세요.");
+        var previous = Settings.IncludePrereleaseUpdates;
+        Settings.IncludePrereleaseUpdates = enabled;
+        try { await SaveSettingsAsync(); }
+        catch { Settings.IncludePrereleaseUpdates = previous; throw; }
+        await _updateInitialization;
+        if (Updates is { } updates)
+            await updates.SetChannelAsync(enabled ? UpdateChannel.Preview : UpdateChannel.Stable, _shutdown.Token);
+    }
     public async Task InstallUpdateAsync()
     {
         if (IsDemo || Updates is null) throw new InvalidOperationException("데모에서는 설치할 수 없습니다.");
@@ -209,6 +230,8 @@ public sealed class AppController : IAsyncDisposable
         if (_connections.Count > 0) throw new InvalidOperationException("계정 연결을 마친 뒤 설치를 실행해 주세요.");
         var exit = ExitForUpdateAsync ?? throw new InvalidOperationException("앱 종료를 준비하지 못했습니다.");
         var enabledWindows = new List<Window>();
+        var selectedRelease = Updates.State.Release;
+        var selectedChannel = Updates.Channel;
         try
         {
             await _updateInstallation.RunAsync(
@@ -225,10 +248,15 @@ public sealed class AppController : IAsyncDisposable
                 await SaveSnapshotsAsync();
                 await SaveAlertStateAsync();
                 await SaveUsageStatisticsAsync();
+                if (selectedRelease is not null && (Updates.CurrentReleaseVersion.IsPrerelease || selectedRelease.IsPrerelease))
+                    await _store.BackupForVersionChangeAsync(Updates.CurrentReleaseVersion.ToString(), selectedRelease.Version, _shutdown.Token);
             },
             installer =>
             {
                 if (_disposed) throw new InvalidOperationException("앱이 종료 중입니다. 다시 실행한 뒤 설치해 주세요.");
+                if (Updates.Channel != selectedChannel || Updates.State.Release != selectedRelease ||
+                    Updates.State.Action == UpdateAction.None || Updates.State.InstallerPath != installer)
+                    throw new InvalidOperationException("업데이트 대상이 변경되었습니다. 다시 확인해 주세요.");
                 var start = new ProcessStartInfo(installer) { UseShellExecute = true, WorkingDirectory = Path.GetDirectoryName(installer)! };
                 start.ArgumentList.Add("/DIR=" + AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
                 start.ArgumentList.Add("/LANG=korean");
@@ -397,7 +425,11 @@ public sealed class AppController : IAsyncDisposable
             UsageUpdated?.Invoke(this, EventArgs.Empty);
             // An empty statistics file also prevents re-importing the previous forecast cache.
             await SaveUsageStatisticsAsync();
-            if (!IsDemo) await _store.SaveForecastHistoryAsync(new());
+            if (!IsDemo)
+            {
+                await _store.SaveForecastHistoryAsync(new());
+                await _store.ClearStatisticsBackupsAsync();
+            }
         }
         finally { _clearingUsageStatistics = false; }
     }

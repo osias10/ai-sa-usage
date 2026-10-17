@@ -45,6 +45,7 @@ id_ed25519
 /update-state.json
 /update-state.json.*
 /updates/
+/update-backups/
 
 # Diagnostic captures and local databases
 *.har

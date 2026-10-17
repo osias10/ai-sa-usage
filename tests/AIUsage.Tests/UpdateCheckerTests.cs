@@ -241,11 +241,168 @@ public sealed class UpdateCheckerTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new UpdateChecker(client).CheckAsync(Source, new(0, 4, 5), cancellation.Token));
     }
 
+    [Fact]
+    public async Task PreviewChoosesHighestVersionAcrossStableAndPreviewReleases()
+    {
+        using var client = Client(ReleaseList(
+            ReleaseJson("v0.4.11-beta.2", "0.4.11-beta.2", prerelease: true),
+            ReleaseJson("v0.4.11-beta.10", "0.4.11-beta.10", prerelease: true),
+            ReleaseJson("v0.4.11-rc.1", "0.4.11-rc.1", prerelease: true),
+            ReleaseJson("v0.4.11", "0.4.11"),
+            ReleaseJson("v9.0.0", "9.0.0", draft: true)));
+        var result = await new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.10"), UpdateChannel.Preview, default);
+        Assert.Equal("0.4.11", result.Release!.Version);
+        Assert.False(result.Release.IsPrerelease);
+        Assert.Equal(UpdateAction.Upgrade, result.Action);
+    }
+
+    [Fact]
+    public async Task SupportsPreviewAssetNamesAndStableDowngrade()
+    {
+        using var previewClient = Client(ReleaseList(ReleaseJson("v0.4.11-beta.1", "0.4.11-beta.1", prerelease: true)));
+        var preview = await new UpdateChecker(previewClient).CheckAsync(Source, ReleaseVersion.Parse("0.4.10"), UpdateChannel.Preview, default);
+        Assert.True(preview.Release!.CanDownload);
+        Assert.True(preview.Release.IsPrerelease);
+        Assert.Equal("AISA-0.4.11-beta.1-win-x64-setup.exe", preview.Release.Asset!.Name);
+        using var stableClient = Client(ReleaseJson("v0.4.10", "0.4.10"));
+        var stable = await new UpdateChecker(stableClient).CheckAsync(Source, ReleaseVersion.Parse("0.4.11-beta.1"), UpdateChannel.Stable, default);
+        Assert.Equal(UpdateAction.ReturnToStable, stable.Action);
+        Assert.False(stable.IsNewer);
+    }
+
+    [Fact]
+    public async Task ReadsAllPagesAndIgnoresExternalLinkDestinations()
+    {
+        var requests = 0;
+        using var client = new HttpClient(new Handler((request, _) =>
+        {
+            requests++;
+            Assert.Equal($"https://api.github.com/repos/example/ai-sa/releases?per_page=100&page={requests}", request.RequestUri!.AbsoluteUri);
+            var response = Response(ReleaseList(requests == 1 ? ReleaseJson() : ReleaseJson("v0.4.11-beta.1", "0.4.11-beta.1", prerelease: true)), request);
+            if (requests == 1) response.Headers.Add("Link", "<https://malicious.example/api>; rel=\"next\", <https://malicious.example/last>; rel=\"last\"");
+            return Task.FromResult(response);
+        }));
+        var result = await new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.10"), UpdateChannel.Preview, default);
+        Assert.Equal(2, requests);
+        Assert.Equal("0.4.11-beta.1", result.Release!.Version);
+    }
+
+    [Fact]
+    public async Task FullPageWithoutLinkStillChecksNextPage()
+    {
+        var requests = 0;
+        using var client = new HttpClient(new Handler((request, _) =>
+        {
+            requests++;
+            return Task.FromResult(Response(requests == 1
+                ? ReleaseList(Enumerable.Repeat(ReleaseJson(), 100).ToArray())
+                : ReleaseList(ReleaseJson("v0.4.11-beta.1", "0.4.11-beta.1", prerelease: true)), request));
+        }));
+        var result = await new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.10"), UpdateChannel.Preview, default);
+        Assert.Equal(2, requests);
+        Assert.Equal("0.4.11-beta.1", result.Release!.Version);
+    }
+
+    [Fact]
+    public async Task PaginationLimitDoesNotReturnAPartialLatestRelease()
+    {
+        var requests = 0;
+        using var client = new HttpClient(new Handler((request, _) =>
+        {
+            requests++;
+            var response = Response(ReleaseList(ReleaseJson()), request);
+            response.Headers.Add("Link", "<https://api.github.com/next>; rel=\"next\"");
+            return Task.FromResult(response);
+        }));
+        var error = await Assert.ThrowsAsync<GitHubUpdateException>(() => new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.5"), UpdateChannel.Preview, default));
+        Assert.Equal(20, requests);
+        Assert.Contains("조회 범위", error.Message);
+    }
+
+    [Fact]
+    public async Task LaterPageFailureDoesNotOfferTheFirstPageRelease()
+    {
+        var requests = 0;
+        using var client = new HttpClient(new Handler((request, _) =>
+        {
+            requests++;
+            if (requests > 1) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.TooManyRequests) { RequestMessage = request });
+            var response = Response(ReleaseList(ReleaseJson()), request);
+            response.Headers.Add("Link", "<https://api.github.com/next>; rel=\"next\"");
+            return Task.FromResult(response);
+        }));
+        var error = await Assert.ThrowsAsync<GitHubUpdateException>(() => new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.5"), UpdateChannel.Preview, default));
+        Assert.NotNull(error.RetryAfterUtc);
+    }
+
+    [Theory]
+    [InlineData("0.4.11", true)]
+    [InlineData("0.4.11-beta.1", false)]
+    public async Task RejectsTagAndPrereleaseFlagMismatch(string version, bool preview)
+    {
+        using var client = Client(ReleaseList(ReleaseJson("v" + version, version, prerelease: preview)));
+        await Assert.ThrowsAsync<GitHubUpdateException>(() => new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.10"), UpdateChannel.Preview, default));
+    }
+
+    [Fact]
+    public async Task UnsupportedTagsDoNotHideValidReleases()
+    {
+        using var client = Client(ReleaseList(ReleaseJson("nightly"), ReleaseJson()));
+        var result = await new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.5"), UpdateChannel.Preview, default);
+        Assert.Equal("0.4.6", result.Release!.Version);
+    }
+
+    [Fact]
+    public async Task MissingLatestInstallerDoesNotFallBackToAnOlderRelease()
+    {
+        var latest = JsonNode.Parse(ReleaseJson("v0.4.11-beta.1", "0.4.11-beta.1", prerelease: true))!;
+        latest["assets"] = new JsonArray();
+        using var client = Client(ReleaseList(ReleaseJson(), latest.ToJsonString()));
+        var result = await new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.5"), UpdateChannel.Preview, default);
+        Assert.Equal("0.4.11-beta.1", result.Release!.Version);
+        Assert.False(result.Release.CanDownload);
+    }
+
+    [Fact]
+    public async Task EquivalentVersionTagsWithDifferentReleaseIdentitiesAreRejected()
+    {
+        using var client = Client(ReleaseList(ReleaseJson("v0.4.10", "0.4.10"), ReleaseJson("v0.4.10.0", "0.4.10")));
+        var error = await Assert.ThrowsAsync<GitHubUpdateException>(() => new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.9"), UpdateChannel.Preview, default));
+        Assert.Contains("같은 버전", error.Message);
+    }
+
+    [Fact]
+    public async Task ConflictingMetadataForRepeatedTagIsRejected()
+    {
+        var changed = JsonNode.Parse(ReleaseJson())!;
+        changed["assets"]![0]!["digest"] = "sha256:" + new string('b', 64);
+        using var client = Client(ReleaseList(ReleaseJson(), changed.ToJsonString()));
+        await Assert.ThrowsAsync<GitHubUpdateException>(() => new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.5"), UpdateChannel.Preview, default));
+    }
+
+    [Fact]
+    public async Task RepeatedIdenticalReleaseDoesNotCreateAmbiguity()
+    {
+        using var client = Client(ReleaseList(ReleaseJson(), ReleaseJson()));
+        var result = await new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.5"), UpdateChannel.Preview, default);
+        Assert.Equal("0.4.6", result.Release!.Version);
+    }
+
+    [Fact]
+    public async Task DuplicateMatchingInstallerAssetsAreRejected()
+    {
+        var json = JsonNode.Parse(ReleaseJson())!;
+        ((JsonArray)json["assets"]!).Add(json["assets"]![0]!.DeepClone());
+        using var client = Client(ReleaseList(json.ToJsonString()));
+        await Assert.ThrowsAsync<GitHubUpdateException>(() => new UpdateChecker(client).CheckAsync(Source, ReleaseVersion.Parse("0.4.5"), UpdateChannel.Preview, default));
+    }
+
     private static HttpClient Client(string json) => new(new Handler((request, _) => Task.FromResult(Response(json, request))));
     private static HttpResponseMessage Response(string json, HttpRequestMessage request) => new(HttpStatusCode.OK) { RequestMessage = request, Content = new StringContent(json) };
-    private static string ReleaseJson(string tag = "v0.4.6", string version = "0.4.6") => JsonSerializer.Serialize(new
+    private static string ReleaseList(params string[] releases) => "[" + string.Join(",", releases) + "]";
+    private static string ReleaseJson(string tag = "v0.4.6", string version = "0.4.6", bool draft = false, bool prerelease = false) => JsonSerializer.Serialize(new
     {
-        tag_name = tag, html_url = $"https://github.com/example/ai-sa/releases/tag/{tag}", body = "Release notes", draft = false, prerelease = false,
+        tag_name = tag, html_url = $"https://github.com/example/ai-sa/releases/tag/{tag}", body = "Release notes", draft, prerelease,
         assets = new[] { new { name = $"AISA-{version}-win-x64-setup.exe", browser_download_url = $"https://github.com/example/ai-sa/releases/download/{tag}/AISA-{version}-win-x64-setup.exe", size = 3, digest = "sha256:" + new string('a', 64) } }
     });
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> callback) : HttpMessageHandler

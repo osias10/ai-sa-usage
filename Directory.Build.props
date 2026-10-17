@@ -5,9 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
     <Deterministic>true</Deterministic>
-    <Version>0.4.9</Version>
-    <AssemblyVersion>$(Version).0</AssemblyVersion>
-    <FileVersion>$(Version).0</FileVersion>
+    <Version>0.4.10</Version>
+    <WindowsVersion>$([System.Text.RegularExpressions.Regex]::Match('$(Version)', '^[0-9]+\.[0-9]+\.[0-9]+').Value).0</WindowsVersion>
+    <AssemblyVersion>$(WindowsVersion)</AssemblyVersion>
+    <FileVersion>$(WindowsVersion)</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
   </PropertyGroup>
 </Project>

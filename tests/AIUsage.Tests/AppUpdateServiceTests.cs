@@ -332,6 +332,330 @@ public sealed class AppUpdateServiceTests
         Assert.Equal(clock.GetUtcNow(), restarted.State.LastCheckedAt);
     }
 
+    [Fact]
+    public async Task PreviewOptOutOffersAndVerifiesAnOlderStableInstaller()
+    {
+        using var files = new TestFiles();
+        using var http = Client((request, _) => Task.FromResult(request.RequestUri!.Host == "api.github.com"
+            ? ReleaseResponse(request, request.RequestUri.AbsolutePath.EndsWith("/latest") ? "0.4.9" : "0.4.10-beta.2")
+            : AssetResponse(request)));
+        await using var service = Service(http, files, ReleaseVersion.Parse("0.4.10-beta.1"));
+        await service.InitializeAsync(false, UpdateChannel.Preview);
+        await service.CheckAsync(true);
+        Assert.Equal(UpdateAction.Upgrade, service.State.Action);
+        await service.DownloadAsync();
+        var previewPath = await service.GetVerifiedInstallerAsync();
+        await service.SetChannelAsync(UpdateChannel.Stable);
+        Assert.Equal(UpdateChannel.Stable, service.Channel);
+        Assert.Equal("0.4.9", service.State.Release!.Version);
+        Assert.Equal(UpdateAction.ReturnToStable, service.State.Action);
+        Assert.Equal(AppUpdatePhase.Available, service.State.Phase);
+        Assert.Null(service.State.InstallerPath);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.GetVerifiedInstallerAsync());
+        await service.DownloadAsync();
+        var stablePath = await service.GetVerifiedInstallerAsync();
+        Assert.NotEqual(previewPath, stablePath);
+        Assert.EndsWith("AISA-0.4.9-win-x64-setup.exe", stablePath);
+        Assert.Equal("0.4.10-beta.1", service.CurrentReleaseVersion.ToString());
+        Assert.Equal(new Version(0, 4, 10), service.CurrentVersion);
+    }
+
+    [Fact]
+    public async Task StableInstallationCannotUseChannelOptOutAsAnArbitraryDowngrade()
+    {
+        using var files = new TestFiles();
+        using var http = Client((request, _) => Task.FromResult(ReleaseResponse(request, "0.4.8")));
+        await using var service = Service(http, files, ReleaseVersion.Parse("0.4.9"));
+        await service.InitializeAsync(false, UpdateChannel.Preview);
+        await service.SetChannelAsync(UpdateChannel.Stable);
+        Assert.Equal(UpdateAction.None, service.State.Action);
+        Assert.Equal(AppUpdatePhase.UpToDate, service.State.Phase);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.DownloadAsync());
+    }
+
+    [Fact]
+    public async Task ChannelSpecificCacheScheduleAndReturnNotificationSurviveRestart()
+    {
+        using var files = new TestFiles();
+        var clock = new ManualClock();
+        var calls = 0;
+        using var http = Client((request, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(ReleaseResponse(request,
+                request.RequestUri!.AbsolutePath.EndsWith("/latest") ? "0.4.9" : "0.4.10-beta.2"));
+        });
+        var notices = new List<string>();
+        await using (var first = Service(http, files, ReleaseVersion.Parse("0.4.10-beta.1"), clock))
+        {
+            first.UpdateAvailable += release => notices.Add(release.Version);
+            await first.InitializeAsync(false, UpdateChannel.Preview);
+            await first.CheckAsync(true);
+            await first.SetChannelAsync(UpdateChannel.Stable);
+            await first.SetChannelAsync(UpdateChannel.Preview);
+            await first.SetChannelAsync(UpdateChannel.Stable);
+        }
+        Assert.Equal(["0.4.10-beta.2", "0.4.9"], notices);
+        await using (var stable = Service(http, files, ReleaseVersion.Parse("0.4.10-beta.1"), clock))
+        {
+            stable.UpdateAvailable += release => notices.Add(release.Version);
+            await stable.InitializeAsync(true, UpdateChannel.Stable);
+            Assert.Equal("0.4.9", stable.State.Release!.Version);
+            Assert.Equal(UpdateAction.ReturnToStable, stable.State.Action);
+            var callsBefore = calls;
+            await stable.CheckAsync(false);
+            Assert.Equal(callsBefore, calls);
+            await stable.CheckAsync(true);
+        }
+        await using var preview = Service(http, files, ReleaseVersion.Parse("0.4.10-beta.1"), clock);
+        preview.UpdateAvailable += release => notices.Add(release.Version);
+        await preview.InitializeAsync(false, UpdateChannel.Preview);
+        Assert.Equal("0.4.10-beta.2", preview.State.Release!.Version);
+        Assert.Equal(UpdateAction.Upgrade, preview.State.Action);
+        await preview.CheckAsync(true);
+        Assert.Equal(["0.4.10-beta.2", "0.4.9"], notices);
+    }
+
+    [Fact]
+    public async Task LateCancelledCheckCannotOverwriteTheNewChannelOrItsSavedState()
+    {
+        using var files = new TestFiles();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseOld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var downloads = 0;
+        using var http = Client(async (request, _) =>
+        {
+            if (request.RequestUri!.Host != "api.github.com")
+            {
+                Interlocked.Increment(ref downloads);
+                return AssetResponse(request);
+            }
+            if (request.RequestUri!.AbsolutePath.EndsWith("/latest"))
+            {
+                started.TrySetResult();
+                await releaseOld.Task; // Deliberately uncooperative transport.
+                return ReleaseResponse(request, "0.4.9");
+            }
+            return ReleaseResponse(request, "0.4.10-beta.2");
+        });
+        await using (var service = Service(http, files, ReleaseVersion.Parse("0.4.8")))
+        {
+            await service.InitializeAsync(false);
+            var oldCheck = service.CheckAsync(true);
+            var queuedDownload = service.DownloadAsync();
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            try
+            {
+                await service.SetChannelAsync(UpdateChannel.Preview).WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Equal("0.4.10-beta.2", service.State.Release!.Version);
+            }
+            finally { releaseOld.TrySetResult(); }
+            await oldCheck;
+            await queuedDownload;
+            Assert.Equal(UpdateChannel.Preview, service.Channel);
+            Assert.Equal("0.4.10-beta.2", service.State.Release!.Version);
+            Assert.Equal(AppUpdatePhase.Available, service.State.Phase);
+            Assert.Equal(0, downloads);
+        }
+        await using var restarted = Service(http, files, ReleaseVersion.Parse("0.4.8"));
+        await restarted.InitializeAsync(false, UpdateChannel.Preview);
+        Assert.Equal("0.4.10-beta.2", restarted.State.Release!.Version);
+    }
+
+    [Fact]
+    public async Task ChannelChangeCancelsAnActiveDownloadAndKeepsTheNewTarget()
+    {
+        using var files = new TestFiles();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var downloadCancelled = false;
+        using var http = Client(async (request, token) =>
+        {
+            if (request.RequestUri!.Host == "api.github.com")
+                return ReleaseResponse(request, request.RequestUri.AbsolutePath.EndsWith("/latest") ? "0.4.9" : "0.4.10-beta.2");
+            started.TrySetResult();
+            try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
+            catch (OperationCanceledException) { downloadCancelled = true; throw; }
+            return AssetResponse(request);
+        });
+        await using var service = Service(http, files, ReleaseVersion.Parse("0.4.10-beta.1"));
+        await service.InitializeAsync(false, UpdateChannel.Preview);
+        await service.CheckAsync(true);
+        var download = service.DownloadAsync();
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await service.SetChannelAsync(UpdateChannel.Stable);
+        await download;
+        Assert.True(downloadCancelled);
+        Assert.Equal("0.4.9", service.State.Release!.Version);
+        Assert.Equal(UpdateAction.ReturnToStable, service.State.Action);
+        Assert.Null(service.State.InstallerPath);
+        Assert.Null(service.State.Message);
+        Assert.Empty(Directory.EnumerateFiles(files.Downloads, "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task SwitchingChannelsDoesNotBypassAStoredServerRetryDeadline()
+    {
+        using var files = new TestFiles();
+        var clock = new ManualClock();
+        var calls = 0;
+        var retryAt = clock.GetUtcNow().AddHours(2);
+        using var http = Client((request, _) =>
+        {
+            if (Interlocked.Increment(ref calls) > 1) return Task.FromResult(ReleaseResponse(request, "0.4.10-beta.2"));
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { RequestMessage = request };
+            response.Headers.RetryAfter = new RetryConditionHeaderValue(retryAt);
+            return Task.FromResult(response);
+        });
+        await using (var first = Service(http, files, ReleaseVersion.Parse("0.4.9"), clock))
+        {
+            await first.InitializeAsync(false);
+            await first.CheckAsync(true);
+            await first.SetChannelAsync(UpdateChannel.Preview);
+            Assert.Equal(1, calls);
+            Assert.NotNull(first.State.RetryAfterUtc);
+        }
+        await using var restarted = Service(http, files, ReleaseVersion.Parse("0.4.9"), clock);
+        await restarted.InitializeAsync(false, UpdateChannel.Preview);
+        await restarted.CheckAsync(true);
+        Assert.Equal(1, calls);
+        clock.Advance(TimeSpan.FromHours(2) + TimeSpan.FromSeconds(1));
+        await restarted.CheckAsync(true);
+        Assert.Equal(2, calls);
+        Assert.Equal(UpdateAction.Upgrade, restarted.State.Action);
+    }
+
+    [Fact]
+    public async Task LegacyStableCacheAndNotificationsMigrateWithoutBecomingPreviewCache()
+    {
+        using var files = new TestFiles();
+        using var http = Client((request, _) => Task.FromResult(ReleaseResponse(request)));
+        var result = await new UpdateChecker(http).CheckAsync(new("example", "ai-sa"), new Version(0, 4, 6), default);
+        await File.WriteAllTextAsync(files.State, JsonSerializer.Serialize(new
+        {
+            SchemaVersion = 1, Source = "example/ai-sa", Release = result.Release,
+            NotifiedVersions = new[] { "0.4.7" }, LastCheckedAt = DateTimeOffset.UtcNow,
+            NextAutomaticCheckAt = DateTimeOffset.UtcNow.AddHours(24)
+        }));
+        await using var service = Service(http, files);
+        var notifications = 0;
+        service.UpdateAvailable += _ => notifications++;
+        await service.InitializeAsync(false, UpdateChannel.Preview);
+        Assert.Null(service.State.Release);
+        await service.SetChannelAsync(UpdateChannel.Stable);
+        Assert.Equal("0.4.7", service.State.Release!.Version);
+        Assert.Equal(0, notifications);
+    }
+
+    [Theory]
+    [InlineData(0, 2)]
+    [InlineData(1, 2)]
+    [InlineData(3, 2)]
+    public async Task DetachedRateLimitPreservesNewChannelStateAndTheLongestDeadline(int currentRetryHours, int detachedRetryHours)
+    {
+        using var files = new TestFiles();
+        var clock = new ManualClock();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishOld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
+        var detachedDeadline = DateTimeOffset.FromUnixTimeSeconds(clock.GetUtcNow().AddHours(detachedRetryHours).ToUnixTimeSeconds());
+        var currentDeadline = DateTimeOffset.FromUnixTimeSeconds(clock.GetUtcNow().AddHours(currentRetryHours).ToUnixTimeSeconds());
+        using var http = Client(async (request, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            if (request.RequestUri!.AbsolutePath.EndsWith("/latest"))
+            {
+                started.TrySetResult();
+                await finishOld.Task; // A transport that returns headers despite cancellation.
+                return RateLimitResponse(request, detachedDeadline);
+            }
+            return currentRetryHours > 0 ? RateLimitResponse(request, currentDeadline)
+                : ReleaseResponse(request, "0.4.10-beta.2");
+        });
+        DateTimeOffset expected;
+        await using (var service = Service(http, files, ReleaseVersion.Parse("0.4.9"), clock))
+        {
+            await service.InitializeAsync(false);
+            var detached = service.CheckAsync(true);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            AppUpdateState before;
+            try
+            {
+                await service.SetChannelAsync(UpdateChannel.Preview);
+                before = service.State;
+            }
+            finally { finishOld.TrySetResult(); }
+            await detached;
+            expected = detachedDeadline > currentDeadline ? detachedDeadline : currentDeadline;
+            Assert.Equal(before with { RetryAfterUtc = expected }, service.State);
+            await service.CheckAsync(true);
+            Assert.Equal(2, calls);
+            await service.SetChannelAsync(UpdateChannel.Stable);
+            Assert.Equal(expected, service.State.RetryAfterUtc);
+            Assert.Equal(2, calls);
+        }
+        await using var restarted = Service(http, files, ReleaseVersion.Parse("0.4.9"), clock);
+        await restarted.InitializeAsync(false, UpdateChannel.Preview);
+        Assert.Equal(expected, restarted.State.RetryAfterUtc);
+        await restarted.CheckAsync(true);
+        Assert.Equal(2, calls);
+    }
+
+    [Fact]
+    public async Task SuccessfulCurrentCheckCannotClearALateDetachedRateLimit()
+    {
+        using var files = new TestFiles();
+        var clock = new ManualClock();
+        var stableStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var previewStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishStable = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finishPreview = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var deadline = DateTimeOffset.FromUnixTimeSeconds(clock.GetUtcNow().AddHours(2).ToUnixTimeSeconds());
+        var calls = 0;
+        using var http = Client(async (request, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            if (request.RequestUri!.AbsolutePath.EndsWith("/latest"))
+            {
+                stableStarted.TrySetResult();
+                await finishStable.Task;
+                return RateLimitResponse(request, deadline);
+            }
+            previewStarted.TrySetResult();
+            await finishPreview.Task;
+            return ReleaseResponse(request, "0.4.10-beta.2");
+        });
+        await using var service = Service(http, files, ReleaseVersion.Parse("0.4.9"), clock);
+        await service.InitializeAsync(false);
+        var oldCheck = service.CheckAsync(true);
+        await stableStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var switchChannel = service.SetChannelAsync(UpdateChannel.Preview);
+        try
+        {
+            await previewStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            finishStable.TrySetResult();
+            await oldCheck;
+            Assert.Equal(AppUpdatePhase.Checking, service.State.Phase);
+            Assert.Equal(deadline, service.State.RetryAfterUtc);
+        }
+        finally { finishStable.TrySetResult(); finishPreview.TrySetResult(); }
+        await switchChannel;
+        Assert.Equal(AppUpdatePhase.Available, service.State.Phase);
+        Assert.Equal("0.4.10-beta.2", service.State.Release!.Version);
+        Assert.Equal(deadline, service.State.RetryAfterUtc);
+        await service.CheckAsync(true);
+        Assert.Equal(2, calls);
+    }
+
+    private static HttpResponseMessage RateLimitResponse(HttpRequestMessage request, DateTimeOffset deadline)
+    {
+        var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests) { RequestMessage = request };
+        response.Headers.RetryAfter = new RetryConditionHeaderValue(deadline);
+        return response;
+    }
+
+    private static AppUpdateService Service(HttpClient http, TestFiles files, ReleaseVersion version, TimeProvider? clock = null) => new(
+        new UpdateChecker(http), new UpdateDownloader(http, files.Downloads), new("example", "ai-sa"), version, files.State, clock);
+
     private static AppUpdateService Service(HttpClient http, TestFiles files, TimeProvider? clock = null) => new(
         new UpdateChecker(http), new UpdateDownloader(http, files.Downloads), new("example", "ai-sa"),
         new Version(0, 4, 6), files.State, clock);
@@ -350,10 +674,11 @@ public sealed class AppUpdateServiceTests
         var json = JsonSerializer.Serialize(new
         {
             tag_name = "v" + version, html_url = $"https://github.com/example/ai-sa/releases/tag/v{version}",
-            body = "Synthetic release notes", draft = false, prerelease = false,
+            body = "Synthetic release notes", draft = false, prerelease = version.Contains('-'),
             assets = new[] { new { name, browser_download_url = $"https://github.com/example/ai-sa/releases/download/v{version}/{name}",
                 size = Installer.Length, digest = "sha256:" + Convert.ToHexString(SHA256.HashData(Installer)).ToLowerInvariant() } }
         });
+        if (request.RequestUri!.AbsolutePath.EndsWith("/releases")) json = "[" + json + "]";
         return new(HttpStatusCode.OK) { RequestMessage = request, Content = new StringContent(json) };
     }
 

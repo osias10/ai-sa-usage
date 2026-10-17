@@ -1,4 +1,4 @@
-param([string]$PublishDirectory)
+param([string]$PublishDirectory, [switch]$Light)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $PublishDirectory) { $PublishDirectory = Join-Path $repoRoot '.artifacts\publish' }
@@ -8,10 +8,11 @@ if (-not (Test-Path -LiteralPath $executable)) { throw 'Run build/build.ps1 firs
 # --smoke-test uses synthetic data and never connects an account or writes user settings.
 $start = New-Object System.Diagnostics.ProcessStartInfo
 $start.FileName = $executable
-$start.Arguments = '--smoke-test'
+$start.Arguments = if ($Light) { '--smoke-test --light' } else { '--smoke-test' }
 $start.WorkingDirectory = $PublishDirectory
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
+$start.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
 $start.EnvironmentVariables['PATH'] = Join-Path $env:SystemRoot 'System32'
 foreach ($variable in @('DOTNET_ROOT','DOTNET_ROOT_X64','DOTNET_HOST_PATH','CODEX_HOME','CLAUDE_CONFIG_DIR','ANTHROPIC_API_KEY','OPENAI_API_KEY','GEMINI_API_KEY')) {
     $start.EnvironmentVariables.Remove($variable)

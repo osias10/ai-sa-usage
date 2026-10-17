@@ -33,11 +33,13 @@ public partial class SettingsWindow : Window
     private bool _windowClosed;
     private readonly HashSet<AccountViewModel> _observedTrayAccounts = [];
     private readonly DispatcherTimer _updateRetryTimer;
-    private readonly Version _currentVersion;
+    private readonly ReleaseVersion _currentReleaseVersion;
     private bool _refreshingUpdateUi;
     private bool _updateActionRunning;
     private bool _installingUpdate;
     private bool _savingAutoCheck;
+    private bool _savingPrereleaseChoice;
+    private int _updateActionGeneration;
     private string? _localUpdateMessage;
     private bool _localUpdateIsError;
     private int _updateRefreshQueued;
@@ -58,8 +60,11 @@ public partial class SettingsWindow : Window
         AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(TrackTextEdit));
         DataContext = controller.ViewModel;
         AddAccountExpander.IsExpanded = controller.ViewModel.IsEmpty;
-        _currentVersion = controller.Updates?.CurrentVersion ?? Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
-        VersionLabel.Text = $"현재 버전 {_currentVersion.Major}.{_currentVersion.Minor}.{Math.Max(0, _currentVersion.Build)}";
+        var assembly = Assembly.GetExecutingAssembly();
+        _currentReleaseVersion = controller.Updates?.CurrentReleaseVersion ??
+            (ReleaseVersion.TryParse(assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion, out var version)
+                ? version : ReleaseVersion.FromVersion(assembly.GetName().Version ?? new Version(0, 0, 0)));
+        VersionLabel.Text = $"현재 버전 {ReleaseVersionLabel(_currentReleaseVersion)}";
         if (controller.IsDemo) SaveStatus.Text = "데모 · 저장되지 않음";
         TopmostChoice.IsChecked = controller.Settings.AlwaysOnTop;
         LockChoice.IsChecked = controller.Settings.PositionLocked;
@@ -417,7 +422,8 @@ public partial class SettingsWindow : Window
     }
     private async Task RunUpdateActionAsync(Func<Task> action, string failureMessage)
     {
-        if (_updateActionRunning || _installingUpdate) return;
+        if (_updateActionRunning || _installingUpdate || _savingPrereleaseChoice) return;
+        var generation = ++_updateActionGeneration;
         _updateActionRunning = true;
         _localUpdateMessage = null;
         _localUpdateIsError = false;
@@ -426,9 +432,18 @@ public partial class SettingsWindow : Window
         {
             await action();
         }
-        catch (OperationCanceledException) { _localUpdateMessage = "작업을 취소했습니다."; }
-        catch (Exception ex) { SetUpdateError(failureMessage, ex); }
-        finally { _updateActionRunning = false; RefreshUpdateInfo(); }
+        catch (OperationCanceledException)
+        {
+            if (generation == _updateActionGeneration) _localUpdateMessage = "작업을 취소했습니다.";
+        }
+        catch (Exception ex)
+        {
+            if (generation == _updateActionGeneration) SetUpdateError(failureMessage, ex);
+        }
+        finally
+        {
+            if (generation == _updateActionGeneration) { _updateActionRunning = false; RefreshUpdateInfo(); }
+        }
     }
     private void CancelUpdateDownload(object sender, RoutedEventArgs e)
     {
@@ -436,7 +451,7 @@ public partial class SettingsWindow : Window
     }
     private async void InstallUpdate(object sender, RoutedEventArgs e)
     {
-        if (_controller.Updates is null || _controller.IsDemo || _installingUpdate || _updateActionRunning) return;
+        if (_controller.Updates is null || _controller.IsDemo || _installingUpdate || _updateActionRunning || _savingPrereleaseChoice || _savingAutoCheck) return;
         _installingUpdate = true;
         _localUpdateMessage = "설치를 준비하고 있습니다…";
         _localUpdateIsError = false;
@@ -447,7 +462,7 @@ public partial class SettingsWindow : Window
     }
     private async void AutoCheckUpdatesChanged(object sender, RoutedEventArgs e)
     {
-        if (!_loaded || _refreshingUpdateUi || _savingAutoCheck || _controller.IsDemo || _controller.Updates is null) return;
+        if (!_loaded || _refreshingUpdateUi || _savingAutoCheck || _savingPrereleaseChoice || _installingUpdate || _controller.IsDemo || _controller.Updates is null) return;
         _savingAutoCheck = true;
         var enabled = AutoCheckUpdatesChoice.IsChecked == true;
         _localUpdateMessage = null;
@@ -456,6 +471,24 @@ public partial class SettingsWindow : Window
         try { await _controller.SetAutoCheckUpdatesAsync(enabled); }
         catch (Exception ex) { SetUpdateError("자동 확인 설정을 저장하지 못했습니다.", ex); }
         finally { _savingAutoCheck = false; RefreshUpdateInfo(); }
+    }
+    private async void IncludePrereleaseUpdatesChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || _refreshingUpdateUi || _savingPrereleaseChoice || _savingAutoCheck || _installingUpdate ||
+            _controller.IsDemo || _controller.Updates is null) return;
+        var enabled = IncludePrereleaseUpdatesChoice.IsChecked == true;
+        if (enabled == _controller.Settings.IncludePrereleaseUpdates) return;
+        _savingPrereleaseChoice = true;
+        // A channel change cancels old work. Its completion must not overwrite the new channel's UI.
+        _updateActionGeneration++;
+        _updateActionRunning = false;
+        _localUpdateMessage = null;
+        _localUpdateIsError = false;
+        RefreshUpdateInfo();
+        try { await _controller.SetIncludePrereleaseUpdatesAsync(enabled); }
+        catch (OperationCanceledException) { _localUpdateMessage = "업데이트 채널 변경을 취소했습니다."; }
+        catch (Exception ex) { SetUpdateError("업데이트 채널을 변경하지 못했습니다.", ex); }
+        finally { _savingPrereleaseChoice = false; RefreshUpdateInfo(); }
     }
     private void OpenReleaseNotes(object sender, RoutedEventArgs e)
     {
@@ -498,7 +531,9 @@ public partial class SettingsWindow : Window
         try
         {
             AutoCheckUpdatesChoice.IsChecked = _controller.Updates?.AutoCheckEnabled ?? _controller.Settings.AutoCheckUpdates;
-            AutoCheckUpdatesChoice.IsEnabled = _controller.Updates is not null && !_controller.IsDemo && !_savingAutoCheck && !_installingUpdate;
+            AutoCheckUpdatesChoice.IsEnabled = _controller.Updates is not null && !_controller.IsDemo && !_savingAutoCheck && !_savingPrereleaseChoice && !_installingUpdate;
+            if (!_savingPrereleaseChoice) IncludePrereleaseUpdatesChoice.IsChecked = _controller.Settings.IncludePrereleaseUpdates;
+            IncludePrereleaseUpdatesChoice.IsEnabled = _controller.Updates is not null && !_controller.IsDemo && !_savingAutoCheck && !_savingPrereleaseChoice && !_installingUpdate;
             if (_controller.Updates is { } updates) { RenderUpdateState(updates.State); return; }
             UpdateButton.IsEnabled = false;
             UpdateButton.Content = "업데이트 확인";
@@ -517,22 +552,37 @@ public partial class SettingsWindow : Window
     internal void RenderUpdateState(AppUpdateState state)
     {
         var usable = _controller.Updates is not null && !_controller.IsDemo;
-        var busy = _updateActionRunning || _installingUpdate || state.Phase is AppUpdatePhase.Checking or AppUpdatePhase.Downloading;
+        var busy = _updateActionRunning || _installingUpdate || _savingPrereleaseChoice || _savingAutoCheck || state.Phase is AppUpdatePhase.Checking or AppUpdatePhase.Downloading;
         var delayed = state.RetryAfterUtc is { } retry && retry > DateTimeOffset.UtcNow;
-        var newer = state.Release is { } release && Version.TryParse(release.Version, out var version) && version > _currentVersion;
-        LatestVersionLabel.Text = state.Release?.Version ?? (state.Phase == AppUpdatePhase.UpToDate ? "공개된 릴리스 없음" : "아직 확인하지 않음");
+        var actionable = state.Release is not null && state.Action is UpdateAction.Upgrade or UpdateAction.ReturnToStable;
+        var returnToStable = state.Action == UpdateAction.ReturnToStable;
+        var refreshing = _refreshingUpdateUi;
+        _refreshingUpdateUi = true;
+        try
+        {
+            if (!_savingPrereleaseChoice) IncludePrereleaseUpdatesChoice.IsChecked = state.Channel == UpdateChannel.Preview;
+            // Selecting a channel is allowed while a check/download is being cancelled by the service.
+            IncludePrereleaseUpdatesChoice.IsEnabled = usable && !_savingPrereleaseChoice && !_savingAutoCheck && !_installingUpdate;
+        }
+        finally { _refreshingUpdateUi = refreshing; }
+        LatestVersionLabel.Text = state.Release is { } release
+            ? ReleaseVersion.TryParse(release.Version, out var version) ? ReleaseVersionLabel(version) : "버전 정보 확인 불가"
+            : state.Phase == AppUpdatePhase.UpToDate ? "공개된 릴리스 없음" : "아직 확인하지 않음";
         LastUpdateCheckLabel.Text = state.LastCheckedAt?.ToLocalTime().ToString("yyyy.MM.dd HH:mm:ss", CultureInfo.InvariantCulture) ?? "아직 확인하지 않음";
         UpdateButton.Content = state.Phase == AppUpdatePhase.Checking ? "확인 중…" : "업데이트 확인";
         UpdateButton.IsEnabled = usable && !busy && !delayed;
         UpdateStatus.Text = _localUpdateMessage ?? state.Message ?? (state.Phase switch
         {
-            AppUpdatePhase.Checking => "새 버전을 확인하고 있습니다.",
+            AppUpdatePhase.Checking => "업데이트를 확인하고 있습니다.",
             AppUpdatePhase.Available when state.Release?.Asset is null => "설치 파일 준비 중",
             AppUpdatePhase.Available when state.Release?.CanDownload == false => "설치 파일 검증 정보가 준비되지 않았습니다.",
+            AppUpdatePhase.Available when returnToStable => "정식 버전으로 돌아갈 수 있습니다.",
             AppUpdatePhase.Available => "새 버전을 다운로드할 수 있습니다.",
             AppUpdatePhase.UpToDate when state.Release is null => "공개된 릴리스가 없습니다.",
             AppUpdatePhase.UpToDate => "최신 버전을 사용하고 있습니다.",
+            AppUpdatePhase.Downloading when returnToStable => "정식 버전을 다운로드하고 있습니다.",
             AppUpdatePhase.Downloading => "업데이트를 다운로드하고 있습니다.",
+            AppUpdatePhase.ReadyToInstall when returnToStable => "검증을 마쳤습니다. 정식 버전을 설치할 수 있습니다.",
             AppUpdatePhase.ReadyToInstall => "검증을 마쳤습니다. 설치를 실행할 수 있습니다.",
             AppUpdatePhase.Error => "업데이트 작업을 완료하지 못했습니다.",
             _ => "업데이트 확인 전"
@@ -548,16 +598,23 @@ public partial class SettingsWindow : Window
         UpdateProgress.Value = percent ?? 0;
         UpdateProgressLabel.Text = percent.HasValue ? $"{percent:0}% 다운로드" : "다운로드 중…";
         CancelUpdateDownloadButton.IsEnabled = usable && downloading && !_installingUpdate;
-        DownloadUpdateButton.Visibility = newer && state.Release?.CanDownload == true && (state.Phase is AppUpdatePhase.Available or AppUpdatePhase.Error)
+        DownloadUpdateButton.Content = returnToStable ? "정식 버전 다운로드" : "다운로드";
+        DownloadUpdateButton.Visibility = actionable && state.Release?.CanDownload == true && (state.Phase is AppUpdatePhase.Available or AppUpdatePhase.Error)
             ? Visibility.Visible : Visibility.Collapsed;
         DownloadUpdateButton.IsEnabled = usable && !busy && !delayed;
-        var readyToInstall = state.Phase == AppUpdatePhase.ReadyToInstall && !string.IsNullOrWhiteSpace(state.InstallerPath);
+        var readyToInstall = actionable && state.Release?.CanDownload == true && state.Phase == AppUpdatePhase.ReadyToInstall && !string.IsNullOrWhiteSpace(state.InstallerPath);
+        InstallUpdateButton.Content = returnToStable ? "정식 버전 설치" : "설치 실행";
+        InstallUpdateHint.Text = returnToStable
+            ? "정식 버전 설치를 누르면 AI SA를 닫고 설치 프로그램을 엽니다."
+            : "파일 검증을 마쳤습니다. 설치 실행을 누르면 AI SA를 닫고 설치 프로그램을 엽니다.";
         InstallUpdateButton.Visibility = InstallUpdateHint.Visibility = readyToInstall ? Visibility.Visible : Visibility.Collapsed;
         InstallUpdateButton.IsEnabled = usable && readyToInstall && !busy;
         ReleaseNotesButton.Visibility = state.Release is not null ? Visibility.Visible : Visibility.Collapsed;
         ReleaseNotesButton.Content = state.Release?.CanDownload == false ? "배포 페이지 열기" : "변경 사항";
         ReleaseNotesButton.IsEnabled = usable && !_installingUpdate;
     }
+    private static string ReleaseVersionLabel(ReleaseVersion version)
+        => $"{version} · {(version.IsPrerelease ? "프리릴리스" : "정식")}";
 }
 
 public sealed class RefreshMinutesRule : ValidationRule

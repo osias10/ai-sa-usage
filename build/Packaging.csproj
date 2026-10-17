@@ -2,7 +2,7 @@
   <PropertyGroup><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
   <ItemGroup><PackageReference Include="Tools.InnoSetup" Version="6.7.1" PrivateAssets="all" /></ItemGroup>
   <Target Name="BuildInstaller" DependsOnTargets="ResolveReferences">
-    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(Version)', '^\d+\.\d+\.\d+$'))" Text="Installer Version must have the form major.minor.patch." />
-    <Exec Command="&quot;$(InnoSetupCompiler)&quot; /DAppVersion=$(Version) &quot;$(MSBuildThisFileDirectory)installer.iss&quot;" />
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(Version)', '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(beta|rc)\.(0|[1-9][0-9]*))?\z'))" Text="Installer Version must be major.minor.patch, optionally followed by -beta.N or -rc.N." />
+    <Exec Command="&quot;$(InnoSetupCompiler)&quot; /DAppVersion=$(Version) /DAppNumericVersion=$(WindowsVersion) &quot;$(MSBuildThisFileDirectory)installer.iss&quot;" />
   </Target>
 </Project>

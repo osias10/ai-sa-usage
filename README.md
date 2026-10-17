@@ -6,7 +6,7 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · Preview 0.4.9
+Windows 11 x64 · Desktop widget & system tray · 0.4.10
 
 ## Screenshots
 
@@ -47,7 +47,7 @@ The widget stays out of Alt+Tab and the taskbar. It fits its height to the conte
 
 AI SA tracks **subscription limits**, rather than API billing or token costs. Antigravity usage is separate from Gemini web usage.
 
-This is a preview. Claude has been checked with a connected Max account. Codex and Antigravity integrations still need validation with signed-in subscription accounts.
+This project is still in early development. Claude has been checked with a connected Max account. Codex and Antigravity integrations still need validation with signed-in subscription accounts.
 
 ## Get started
 
@@ -80,7 +80,13 @@ Starting with **0.4.6**, AI SA checks GitHub for a new stable release once every
 
 Choose **Download (다운로드)** to download and verify the installer. You can cancel the download and keep using the widget. When ready, choose **Run installer (설치 실행)**: AI SA saves your settings, opens the installation wizard, and exits. Complete the wizard and use its **AI SA 실행** option to reopen the app. Your accounts and widget settings are preserved.
 
-**If you use 0.4.5, install a published version of 0.4.6 or later manually first.** Its update address was not configured, so it cannot discover this first upgrade itself. Pre-releases are not offered by the updater.
+From **0.4.10**, you can enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info**. It is off by default and independent of automatic checks. When enabled, AI SA offers newer stable releases and previews, with the release type shown next to the version.
+
+Turn it off while using a preview to return to the latest stable release—even when that version number is lower. Choose **정식 버전 다운로드**, then **정식 버전 설치** to run the usual wizard. Switching the option alone does not install anything or close the app. Changing it during a download cancels the old selection and checks the selected channel again.
+
+Accounts, widget positions, startup preferences, and usage statistics stay in place. Before a preview transition, AI SA backs up its own settings and data without copying sign-in credentials. These local backups expire after 24 hours and are cleaned on the next app launch or transition; clearing statistics also removes backed-up statistics. A preview must remain compatible with the latest stable data format before it can be published.
+
+**If you use 0.4.5, install a published version of 0.4.6 or later manually first.** Its update address was not configured, so it cannot discover this first upgrade itself. Versions before 0.4.10 receive stable releases only; update to the stable 0.4.10 release before opting into previews.
 
 ## Clear status, local settings
 

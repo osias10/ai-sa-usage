@@ -407,7 +407,7 @@
       <Grid Margin="0,22,0,0">
        <Grid.ColumnDefinitions><ColumnDefinition Width="115" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-       <TextBlock Text="최신 버전" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
+       <TextBlock Text="대상 버전" FontSize="12" Foreground="{DynamicResource MutedBrush}" />
        <TextBlock x:Name="LatestVersionLabel" Grid.Column="1" Text="아직 확인하지 않음" FontSize="12" />
        <TextBlock Grid.Row="1" Text="마지막 확인" FontSize="12" Foreground="{DynamicResource MutedBrush}" Margin="0,10,0,0" />
        <TextBlock x:Name="LastUpdateCheckLabel" Grid.Row="1" Grid.Column="1" Text="아직 확인하지 않음" FontSize="12" Margin="0,10,0,0" />
@@ -421,6 +421,18 @@
         </StackPanel>
         <CheckBox x:Name="AutoCheckUpdatesChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" VerticalAlignment="Center"
          Checked="AutoCheckUpdatesChanged" Unchecked="AutoCheckUpdatesChanged" AutomationProperties.Name="자동 업데이트 확인" />
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Margin="0,17,0,0" Padding="0,17,0,0">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="프리릴리스 업데이트 받기" FontSize="13" />
+         <TextBlock Text="정식 출시 전 버전도 확인합니다." FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <CheckBox x:Name="IncludePrereleaseUpdatesChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" VerticalAlignment="Center" IsChecked="False"
+         Checked="IncludePrereleaseUpdatesChanged" Unchecked="IncludePrereleaseUpdatesChanged"
+         AutomationProperties.Name="프리릴리스 업데이트 받기" AutomationProperties.AutomationId="IncludePrereleaseUpdatesChoice" />
        </Grid>
       </Border>
       <TextBlock x:Name="UpdateStatus" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="12" Margin="0,21,0,0" AutomationProperties.LiveSetting="Polite" />

@@ -2,11 +2,18 @@
 #ifndef AppVersion
   #error AppVersion must be supplied by build/Packaging.csproj
 #endif
+#ifndef AppNumericVersion
+  #error AppNumericVersion must be supplied by build/Packaging.csproj
+#endif
 #define AppExe "AIUsageWidget.exe"
 [Setup]
 AppId={{EA2541B7-CE15-4DF9-A1EF-4273D81B8DB6}
 AppName={#AppName}
 AppVersion={#AppVersion}
+VersionInfoVersion={#AppNumericVersion}
+VersionInfoProductVersion={#AppNumericVersion}
+VersionInfoTextVersion={#AppVersion}
+VersionInfoProductTextVersion={#AppVersion}
 AppPublisher=AI SA
 DefaultDirName={localappdata}\Programs\AIUsageWidget
 DefaultGroupName={#AppName}

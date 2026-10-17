@@ -154,9 +154,17 @@ internal sealed class TrayService : IDisposable
         if (_pendingUpdate is { } release)
         {
             _pendingUpdate = null;
-            _balloonShowsUpdate = true;
-            _tray.ShowBalloonTip(10000, "AI SA · 새 버전", $"{release.Version} 버전이 있습니다. 눌러서 업데이트를 확인하세요.", Forms.ToolTipIcon.Info);
-            return;
+            // A channel change may have invalidated an update queued behind usage alerts.
+            if (_controller.Updates?.State is { Action: not UpdateAction.None } state && state.Release == release)
+            {
+                var returning = state.Action == UpdateAction.ReturnToStable;
+                _balloonShowsUpdate = true;
+                var title = returning ? "AI SA · 정식 버전 복귀" : release.IsPrerelease ? "AI SA · 프리릴리스" : "AI SA · 새 버전";
+                var message = returning ? $"정식 {release.Version} 버전으로 돌아갈 수 있습니다. 눌러서 확인하세요."
+                    : $"{release.Version} 버전이 있습니다. 눌러서 업데이트를 확인하세요.";
+                _tray.ShowBalloonTip(10000, title, message, Forms.ToolTipIcon.Info);
+                return;
+            }
         }
         _notificationTimer.Stop();
     }

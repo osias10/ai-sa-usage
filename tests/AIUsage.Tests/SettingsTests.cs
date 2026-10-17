@@ -62,6 +62,7 @@ public sealed class SettingsTests : IDisposable
         var loaded = await new JsonSettingsStore(paths).LoadSettingsAsync();
         Assert.False(loaded.ShowRemaining);
         Assert.True(loaded.AutoCheckUpdates);
+        Assert.False(loaded.IncludePrereleaseUpdates);
         Assert.Null(loaded.TrayAccountId);
         Assert.Null(loaded.Accounts[0].TrayWindow);
         Assert.Null(loaded.Accounts[0].WidgetWindows);

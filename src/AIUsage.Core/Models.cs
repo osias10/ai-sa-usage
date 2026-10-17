@@ -1,3 +1,6 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
 namespace AIUsage.Core;
 
 public enum ProviderKind { Claude, Codex, Antigravity }
@@ -5,6 +8,8 @@ public enum UsageState { Ready, SignInRequired, Offline, RateLimited, UpdateRequ
 
 public sealed class AccountSettings
 {
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public ProviderKind Provider { get; set; }
     public string Alias { get; set; } = "개인";
@@ -25,6 +30,8 @@ public sealed record WidgetWindowSelection(string Id, string Name);
 
 public sealed class UsageAlertRule
 {
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }
     public string WindowId { get; set; } = "";
     public bool Enabled { get; set; }
     public int ThresholdPercent { get; set; } = 80;
@@ -41,12 +48,16 @@ public sealed record ProviderProgress(string Message, double? Percent = null);
 
 public sealed class AppSettings
 {
+    // Keep additive settings written by a newer preview when returning to this stable build.
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? AdditionalSettings { get; set; }
     public int SchemaVersion { get; set; } = 1;
     public bool AlwaysOnTop { get; set; } = true;
     public bool PositionLocked { get; set; }
     public bool MiniMode { get; set; }
     public bool StartWithWindows { get; set; }
     public bool AutoCheckUpdates { get; set; } = true;
+    public bool IncludePrereleaseUpdates { get; set; }
     public bool ShowRemaining { get; set; }
     public bool ShowLastChecked { get; set; } = true;
     public bool UsageForecastEnabled { get; set; }
@@ -121,6 +132,7 @@ public sealed class AppPaths
     public string UsageStatisticsFile => Path.Combine(Root, "usage-statistics.json");
     public string UpdateStateFile => Path.Combine(Root, "update-state.json");
     public string UpdatesDirectory => Path.Combine(Root, "updates");
+    public string UpdateBackupsDirectory => Path.Combine(Root, "update-backups");
     public string Runtimes => Path.Combine(Root, "runtimes");
     public string WorkDirectory => Path.Combine(Root, "work");
     public string ProfileDirectory(AccountSettings account)

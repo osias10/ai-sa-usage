@@ -93,6 +93,20 @@ public sealed class JsonSettingsStore(AppPaths paths)
     public Task SaveUsageStatisticsAsync(UsageStatisticsHistory history, CancellationToken cancellationToken = default)
         => SaveAsync(paths.UsageStatisticsFile, history, cancellationToken);
 
+    public async Task<string> BackupForVersionChangeAsync(string fromVersion, string toVersion, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { return await new UpdateDataBackup(paths).CreateAsync(fromVersion, toVersion, cancellationToken).ConfigureAwait(false); }
+        finally { _gate.Release(); }
+    }
+
+    public async Task ClearStatisticsBackupsAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try { new UpdateDataBackup(paths).ClearStatistics(); }
+        finally { _gate.Release(); }
+    }
+
     private async Task<T?> LoadAsync<T>(string file, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
