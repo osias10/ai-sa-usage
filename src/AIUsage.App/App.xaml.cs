@@ -75,6 +75,7 @@ public partial class App : Application
                 if (settings.Owner is not null || !settings.IsVisible)
                     throw new InvalidOperationException("Settings must open as an independent window.");
                 await VerifyWindowBehaviorAsync(window, settings);
+                await VerifyClickThroughAsync(window, settings);
                 await VerifyUpdateInfoAsync(window, settings);
                 var settingsTabs = (System.Windows.Controls.TabControl)settings.FindName("SettingsTabs");
                 for (var index = 0; index < settingsTabs.Items.Count; index++)

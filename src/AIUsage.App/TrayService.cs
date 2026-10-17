@@ -21,6 +21,7 @@ internal sealed class TrayService : IDisposable
     private readonly DispatcherTimer _notificationTimer;
     private readonly Queue<IReadOnlyList<UsageAlert>> _pendingAlerts = [];
     private readonly Forms.ToolStripMenuItem _readingItem;
+    internal Forms.ToolStripMenuItem ClickThroughItem { get; }
     private System.Drawing.Point _hoverPoint;
     private DateTimeOffset _hoverStarted;
     private string? _iconKey;
@@ -39,6 +40,16 @@ internal sealed class TrayService : IDisposable
         menu.Items.Add(_readingItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("위젯 열기", null, (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowWidget));
+        ClickThroughItem = new Forms.ToolStripMenuItem("클릭 통과") { ShowShortcutKeys = true };
+        ClickThroughItem.Click += async (_, _) =>
+        {
+            try
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() => controller.SetClickThroughAsync(!controller.Settings.ClickThrough)).Task.Unwrap();
+            }
+            catch (Exception error) { Application.Current.Dispatcher.Invoke(() => controller.ShowError(error)); }
+        };
+        menu.Items.Add(ClickThroughItem);
         menu.Items.Add("새로고침", null, async (_, _) =>
         {
             try { await controller.RefreshAllAsync(); } catch (Exception error) { Application.Current.Dispatcher.Invoke(() => controller.ShowError(error)); }
@@ -60,7 +71,7 @@ internal sealed class TrayService : IDisposable
             if (_balloonShowsUpdate) controller.ShowUpdateSettings();
             else controller.ShowSettings();
         });
-        menu.Opening += (_, _) => HideSummary();
+        menu.Opening += (_, _) => { HideSummary(); Refresh(); };
         _refreshTimer = new DispatcherTimer(TimeSpan.FromSeconds(15), DispatcherPriority.Background, (_, _) => Refresh(), Application.Current.Dispatcher);
         _hoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
         _hoverTimer.Tick += (_, _) => UpdateHover();
@@ -76,6 +87,8 @@ internal sealed class TrayService : IDisposable
     internal void Refresh()
     {
         if (_disposed) return;
+        ClickThroughItem.Checked = _controller.Settings.ClickThrough;
+        ClickThroughItem.ShortcutKeyDisplayString = _controller.Window?.ClickThroughHotkeyAvailable == true ? "Ctrl+Alt+W" : "";
         CurrentReading = TrayUsageFormatting.GetReading(_controller.Settings, _controller.GetStatuses(), DateTimeOffset.UtcNow);
         _summary.SetMode(_controller.Settings.ShowRemaining);
         _readingItem.Text = string.Join("\n", CurrentReading.Tooltip.Split('\n').Take(2));

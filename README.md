@@ -6,7 +6,9 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · 0.4.10
+Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.1
+
+**Click-through beta:** [Download 0.4.11-beta.1](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.1), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
 
 ## Screenshots
 
@@ -31,6 +33,7 @@ Screenshots use demo data in the Korean UI. No real account information is shown
 - **Time-to-limit estimates.** Enable **소진 예상** in **Settings → Widget** to estimate when each limit will run out from recent usage. **위젯에 예상 표시** controls the widget line separately; results remain available in account settings. Forecasting is off by default.
 - **Save usage statistics.** Enable **사용량 통계 저장** in **Settings → Widget** to record every successful refresh. Saving, forecasting, and widget display are independent. Turning saving off keeps existing records; **기록 삭제** clears them explicitly.
 - **Fit your desktop.** Adjust the size and transparency of the whole widget, use light or dark themes, keep it on top, or lock its position.
+- **Click through the widget.** Keep usage visible while mouse input goes to the apps underneath. Toggle it from settings, the tray menu, or **Ctrl+Alt+W**.
 
 Forecasts use saved statistics and need at least three checks spanning ten minutes with a measurable usage increase. They assume your current pace continues and distinguish an earlier reset or insufficient data. Records stay on your PC for up to 24 hours. Turning saving off stops new records; turning forecasting off stops calculation.
 
@@ -67,12 +70,15 @@ The first connection needs internet access and may download several hundred mega
 | Open settings | Double-click the widget, or use the tray menu |
 | Refresh usage | Press **F5** with the widget focused, or use its right-click menu |
 | Adjust transparency | **설정 → 위젯 → 위젯 투명도**; applies to text, icons, gauges, and background |
+| Toggle click-through | **Settings → Widget → 클릭 통과**, the tray's **클릭 통과** checkbox, or **Ctrl+Alt+W** from any app |
 | Choose the tray number | **설정 → 위젯 → 트레이 표시 계정 / 트레이 표시 항목** |
 | Show the last check time | **설정 → 위젯 → 마지막 확인 시간** |
 | Bring back a hidden widget | Choose **위젯 열기** from the tray menu |
 | Quit AI SA | Choose **종료** from the tray menu |
 
 Changes are saved automatically. At 100% transparency, the whole widget is invisible; the tray menu and settings stay available so you can adjust it again.
+
+Click-through is off by default and stays as you set it after restarting. When enabled, the whole widget passes mouse input through, including clicks used to drag, resize, open settings, or show its right-click menu. Turn it off from the tray or with **Ctrl+Alt+W** to interact with the widget again. If another app has claimed the shortcut, use the tray menu. Settings and tray controls remain available; transparency and position lock are separate options.
 
 ## Updates
 

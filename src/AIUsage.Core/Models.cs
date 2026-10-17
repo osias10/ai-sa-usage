@@ -54,6 +54,7 @@ public sealed class AppSettings
     public int SchemaVersion { get; set; } = 1;
     public bool AlwaysOnTop { get; set; } = true;
     public bool PositionLocked { get; set; }
+    public bool ClickThrough { get; set; }
     public bool MiniMode { get; set; }
     public bool StartWithWindows { get; set; }
     public bool AutoCheckUpdates { get; set; } = true;

@@ -371,6 +371,18 @@
        <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
         <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="클릭 통과" FontSize="13" />
+         <TextBlock Text="위젯 아래 창을 클릭합니다. 이동·크기 변경은 잠깁니다." TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" />
+         <TextBlock x:Name="ClickThroughHint" TextWrapping="Wrap" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,4,0,0" />
+        </StackPanel>
+        <CheckBox x:Name="ClickThroughChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" Checked="ClickThroughChanged" Unchecked="ClickThroughChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="클릭 통과" />
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
          <TextBlock Text="로그인 시 시작" FontSize="13" />
          <TextBlock Text="Windows에 로그인하면 위젯을 엽니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" />
         </StackPanel>

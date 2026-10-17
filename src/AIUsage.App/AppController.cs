@@ -32,6 +32,9 @@ public sealed class AppController : IAsyncDisposable
     private Task _updateInitialization = Task.CompletedTask;
     private readonly UpdateInstallation _updateInstallation = new();
     private bool _preparingUpdate;
+    private readonly SemaphoreSlim _clickThroughSaveGate = new(1, 1);
+    private int _clickThroughRevision;
+    private bool _savedClickThrough;
     private readonly Dictionary<string, CancellationTokenSource> _connections = [];
     private readonly Dictionary<string, TaskCompletionSource> _connectionCompletions = [];
     public AppSettings Settings { get; }
@@ -61,6 +64,7 @@ public sealed class AppController : IAsyncDisposable
         UsageStatisticsHistory? statisticsHistory = null)
     {
         Settings = settings;
+        _savedClickThrough = settings.ClickThrough;
         _store = store;
         IsDemo = demo;
         _runtime = runtime;
@@ -197,7 +201,7 @@ public sealed class AppController : IAsyncDisposable
         if (Window is null) return;
         Window.Show();
         Window.WindowState = WindowState.Normal;
-        Window.Activate();
+        if (!Settings.ClickThrough) Window.Activate();
     }
     public void ShowUpdateSettings()
     {
@@ -387,6 +391,54 @@ public sealed class AppController : IAsyncDisposable
         ThemeManager.Apply(theme);
         PreferencesUpdated?.Invoke(this, EventArgs.Empty);
         await SaveSettingsAsync();
+    }
+    public async Task SetClickThroughAsync(bool enabled)
+    {
+        if (_disposed || _preparingUpdate || Settings.ClickThrough == enabled) return;
+        var previous = Settings.ClickThrough;
+        var previousRevision = _clickThroughRevision;
+        var revision = ++_clickThroughRevision;
+        Settings.ClickThrough = enabled;
+        try { PreferencesUpdated?.Invoke(this, EventArgs.Empty); }
+        catch (Exception error)
+        {
+            if (revision == _clickThroughRevision)
+            {
+                // Applying styles is synchronous. Restore the earlier request's
+                // revision too, so its pending save is still allowed to finish.
+                _clickThroughRevision = previousRevision;
+                error = RestoreClickThrough(previous, error);
+            }
+            throw new InvalidOperationException("클릭 통과를 적용하지 못했습니다.", error);
+        }
+        // Apply each input immediately, then serialize saves. An earlier failed save
+        // must not undo a newer choice from the settings window, tray, or hotkey.
+        await _clickThroughSaveGate.WaitAsync();
+        try
+        {
+            if (revision != _clickThroughRevision) return;
+            try
+            {
+                // The store serializes synchronously before awaiting disk access.
+                var persistedValue = Settings.ClickThrough;
+                await SaveSettingsAsync();
+                _savedClickThrough = persistedValue;
+            }
+            catch (Exception error)
+            {
+                if (revision == _clickThroughRevision)
+                    error = RestoreClickThrough(_savedClickThrough, error);
+                throw new InvalidOperationException("클릭 통과 설정을 저장하지 못했습니다.", error);
+            }
+        }
+        finally { _clickThroughSaveGate.Release(); }
+    }
+    private Exception RestoreClickThrough(bool enabled, Exception originalError)
+    {
+        Settings.ClickThrough = enabled;
+        try { PreferencesUpdated?.Invoke(this, EventArgs.Empty); }
+        catch (Exception restoreError) { return new AggregateException(originalError, restoreError); }
+        return originalError;
     }
     public void SetWidgetTransparency(int value)
     {

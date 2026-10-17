@@ -7,6 +7,41 @@ public sealed class SettingsTests : IDisposable
 {
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "AIUsage-tests-" + Guid.NewGuid().ToString("N"));
     [Fact]
+    public async Task ExistingSettingsStartWithClickThroughDisabled()
+    {
+        var paths = new AppPaths(_directory);
+        Directory.CreateDirectory(_directory);
+        await File.WriteAllTextAsync(paths.SettingsFile, "{\"PositionLocked\":true,\"WidgetTransparencyPercent\":45}");
+        var loaded = await new JsonSettingsStore(paths).LoadSettingsAsync();
+        Assert.False(loaded.ClickThrough);
+        Assert.True(loaded.PositionLocked);
+        Assert.Equal(45, loaded.WidgetTransparencyPercent);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ClickThroughCanBeRestoredAndDisabledWithoutChangingLayout(bool positionLocked)
+    {
+        var paths = new AppPaths(_directory);
+        var placement = new WindowPlacement(120, 240, 230, 100, 1.5);
+        await new JsonSettingsStore(paths).SaveSettingsAsync(new()
+        {
+            ClickThrough = true, PositionLocked = positionLocked, WidgetTransparencyPercent = 100,
+            Placements = new() { ["compact-v2:last"] = placement }
+        });
+        var restored = await new JsonSettingsStore(paths).LoadSettingsAsync();
+        Assert.True(restored.ClickThrough);
+        restored.ClickThrough = false;
+        await new JsonSettingsStore(paths).SaveSettingsAsync(restored);
+        restored = await new JsonSettingsStore(paths).LoadSettingsAsync();
+        Assert.False(restored.ClickThrough);
+        Assert.Equal(positionLocked, restored.PositionLocked);
+        Assert.Equal(100, restored.WidgetTransparencyPercent);
+        Assert.Equal(placement, restored.Placements["compact-v2:last"]);
+    }
+
+    [Fact]
     public async Task SettingsAndSnapshotsRoundTripWithoutCredentials()
     {
         var paths = new AppPaths(_directory); var store = new JsonSettingsStore(paths);

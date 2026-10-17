@@ -20,6 +20,7 @@ public partial class SettingsWindow : Window
     private bool _updatingTrayWindowChoice;
     private bool _updatingForecastChoices;
     private bool _updatingStatisticsChoice;
+    private bool _updatingClickThroughChoice;
     private bool _clearingStatistics;
     private string? _trayWindowAccountId;
     private readonly DispatcherTimer _transparencySaveTimer;
@@ -68,6 +69,7 @@ public partial class SettingsWindow : Window
         if (controller.IsDemo) SaveStatus.Text = "데모 · 저장되지 않음";
         TopmostChoice.IsChecked = controller.Settings.AlwaysOnTop;
         LockChoice.IsChecked = controller.Settings.PositionLocked;
+        RefreshClickThroughChoice();
         StartupChoice.IsChecked = controller.Settings.StartWithWindows;
         ThemeChoice.SelectedIndex = controller.Settings.Theme switch { "Dark" => 1, "Light" => 2, _ => 0 };
         WidgetTransparencySlider.Value = Math.Clamp(controller.Settings.WidgetTransparencyPercent, 0, 100);
@@ -227,6 +229,33 @@ public partial class SettingsWindow : Window
             _loaded = true;
         }
     }
+    private async void ClickThroughChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || _updatingClickThroughChoice) return;
+        try
+        {
+            await _controller.SetClickThroughAsync(ClickThroughChoice.IsChecked == true);
+            if (!_windowClosed) SaveStatus.Text = _controller.IsDemo ? "데모 · 저장되지 않음" : "자동 저장";
+        }
+        catch (Exception error)
+        {
+            _controller.ShowError(error);
+            if (!_windowClosed) SaveStatus.Text = "설정을 저장하지 못했습니다.";
+        }
+        finally { if (!_windowClosed) RefreshClickThroughChoice(); }
+    }
+    private void RefreshClickThroughChoice()
+    {
+        _updatingClickThroughChoice = true;
+        try
+        {
+            ClickThroughChoice.IsChecked = _controller.Settings.ClickThrough;
+            ClickThroughHint.Text = _controller.Window?.ClickThroughHotkeyAvailable == true
+                ? "Ctrl+Alt+W 또는 트레이 메뉴에서 켜고 끕니다."
+                : "트레이 메뉴에서 끌 수 있습니다. 단축키를 사용할 수 없습니다.";
+        }
+        finally { _updatingClickThroughChoice = false; }
+    }
     private async void UsageStatisticsChanged(object sender, RoutedEventArgs e)
     {
         if (!_loaded || _updatingStatisticsChoice) return;
@@ -324,7 +353,7 @@ public partial class SettingsWindow : Window
     }
     private void TrayContextChanged(object? sender, EventArgs e)
     {
-        if (!_windowClosed) { RefreshTrayAccounts(); RefreshForecastChoices(); RefreshUsageStatistics(); }
+        if (!_windowClosed) { RefreshTrayAccounts(); RefreshForecastChoices(); RefreshUsageStatistics(); RefreshClickThroughChoice(); }
     }
     private void TrayAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e) => ObserveTrayAccounts();
     private void ObserveTrayAccounts()
