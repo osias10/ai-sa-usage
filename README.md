@@ -6,9 +6,9 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.1
+Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.2
 
-**Click-through beta:** [Download 0.4.11-beta.1](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.1), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
+**Beta with improved monitor position memory:** [Download 0.4.11-beta.2](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.2), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later to discover published previews. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
 
 ## Screenshots
 
@@ -33,6 +33,7 @@ Screenshots use demo data in the Korean UI. No real account information is shown
 - **Time-to-limit estimates.** Enable **소진 예상** in **Settings → Widget** to estimate when each limit will run out from recent usage. **위젯에 예상 표시** controls the widget line separately; results remain available in account settings. Forecasting is off by default.
 - **Save usage statistics.** Enable **사용량 통계 저장** in **Settings → Widget** to record every successful refresh. Saving, forecasting, and widget display are independent. Turning saving off keeps existing records; **기록 삭제** clears them explicitly.
 - **Fit your desktop.** Adjust the size and transparency of the whole widget, use light or dark themes, keep it on top, or lock its position.
+- **Remember your monitor.** Keep the widget's placement across monitor reconnections, desktop rearrangements, and scaling changes.
 - **Click through the widget.** Keep usage visible while mouse input goes to the apps underneath. Toggle it from settings, the tray menu, or **Ctrl+Alt+W**.
 
 Forecasts use saved statistics and need at least three checks spanning ten minutes with a measurable usage increase. They assume your current pace continues and distinguish an earlier reset or insufficient data. Records stay on your PC for up to 24 hours. Turning saving off stops new records; turning forecasting off stops calculation.
@@ -79,6 +80,8 @@ The first connection needs internet access and may download several hundred mega
 Changes are saved automatically. At 100% transparency, the whole widget is invisible; the tray menu and settings stay available so you can adjust it again.
 
 Click-through is off by default and stays as you set it after restarting. When enabled, the whole widget passes mouse input through, including clicks used to drag, resize, open settings, or show its right-click menu. Turn it off from the tray or with **Ctrl+Alt+W** to interact with the widget again. If another app has claimed the shortcut, use the tray menu. Settings and tray controls remain available; transparency and position lock are separate options.
+
+From **0.4.11-beta.2**, AI SA remembers the monitor and the widget's position within its available desktop area, accounting for display scaling. If that monitor disconnects, the widget temporarily appears on an available screen and returns when the original monitor reconnects. Moving or resizing it yourself makes that placement the new preference. This works automatically; position lock remains a separate option.
 
 ## Updates
 

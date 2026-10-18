@@ -7,7 +7,6 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
 using AIUsage.Core;
-using Forms = System.Windows.Forms;
 
 namespace AIUsage.App;
 
@@ -32,6 +31,7 @@ public partial class MainWindow : Window
         _showLastChecked = controller.Settings.ShowLastChecked;
         _showForecast = controller.Settings.UsageForecastEnabled && controller.Settings.ShowUsageForecast;
         InitializeComponent();
+        InitializePlacementBehavior();
         DataContext = controller.ViewModel;
         ShowActivated = !controller.Settings.ClickThrough;
         ApplyTransparency();
@@ -197,57 +197,11 @@ public partial class MainWindow : Window
             return;
         }
         if (_controller.Settings.PositionLocked) return;
-        try { DragMove(); CapturePlacement(); _ = SavePositionAsync(); }
+        try { DragMove(); }
         catch (InvalidOperationException) { }
     }
 
-    // Kept as the controller entry point; the widget now has a single compact layout.
-    public void ApplyMode(bool fitHeight = false)
-    {
-        if (!_ready) return;
-        var hasCompactPlacement = _controller.Settings.Placements.TryGetValue($"{PlacementKey}:last", out var placement);
-        var hasPosition = hasCompactPlacement;
-        if (!hasCompactPlacement)
-        {
-            var previousMode = _controller.Settings.MiniMode ? "mini" : "widget";
-            hasPosition = _controller.Settings.Placements.TryGetValue($"{previousMode}:last", out var previous)
-                || _controller.Settings.Placements.TryGetValue("widget:last", out previous)
-                || _controller.Settings.Placements.TryGetValue("mini:last", out previous);
-            placement = new WindowPlacement(previous?.Left ?? 0, previous?.Top ?? 0, DefaultWidth, ContentHeight(DefaultWidth));
-        }
-        var selected = placement!;
-        var screen = hasPosition
-            ? Forms.Screen.AllScreens.FirstOrDefault(s => s.WorkingArea.Contains((int)selected.Left + 10, (int)selected.Top + 10)) ?? Forms.Screen.PrimaryScreen!
-            : Forms.Screen.PrimaryScreen!;
-        if (hasCompactPlacement && _controller.Settings.Placements.TryGetValue($"{PlacementKey}:{screen.DeviceName}", out var onMonitor)) selected = onMonitor;
-        if (fitHeight) selected = selected with { Height = ContentHeight(Math.Max(MinWidth, selected.Width)) };
-        PlaceWindow(selected, screen, hasPosition);
-        if (fitHeight)
-            Dispatcher.BeginInvoke(new Action(() => { CapturePlacement(); _ = SavePositionAsync(); }));
-    }
-
-    public void FitContent()
-    {
-        if (!_ready) return;
-        var handle = new WindowInteropHelper(this).Handle;
-        if (!GetWindowRect(handle, out var bounds)) return;
-        var placement = new WindowPlacement(bounds.Left, bounds.Top, DefaultWidth, ContentHeight(DefaultWidth));
-        PlaceWindow(placement, Forms.Screen.FromHandle(handle), true);
-        Dispatcher.BeginInvoke(new Action(() => { CapturePlacement(); _ = SavePositionAsync(); }));
-    }
-
     private void FitContentClicked(object sender, RoutedEventArgs e) => FitContent();
-
-    private void FitHeight()
-    {
-        // Selection and timestamp changes keep the user's width and screen position.
-        var handle = new WindowInteropHelper(this).Handle;
-        if (!GetWindowRect(handle, out var bounds)) return;
-        var width = Math.Max(MinWidth, ActualWidth);
-        var placement = new WindowPlacement(bounds.Left, bounds.Top, width, ContentHeight(width));
-        PlaceWindow(placement, Forms.Screen.FromHandle(handle), true);
-        Dispatcher.BeginInvoke(new Action(() => { CapturePlacement(); _ = SavePositionAsync(); }));
-    }
 
     private double ContentHeight(double width)
     {
@@ -260,31 +214,6 @@ public partial class MainWindow : Window
         return Math.Max(MinHeight, Math.Ceiling(WidgetContent.DesiredSize.Height) + 10);
     }
 
-    private void PlaceWindow(WindowPlacement placement, Forms.Screen screen, bool preservePosition)
-    {
-        var area = screen.WorkingArea;
-        var scale = MonitorScale(area.Left + 10, area.Top + 10);
-        var pixelWidth = (int)Math.Clamp(placement.Width * scale, Math.Min(MinWidth * scale, area.Width), area.Width);
-        var pixelHeight = (int)Math.Clamp(placement.Height * scale, Math.Min(MinHeight * scale, area.Height), area.Height);
-        var left = preservePosition ? (int)placement.Left : area.Right - pixelWidth - 10;
-        var top = preservePosition ? (int)placement.Top : area.Bottom - pixelHeight - 10;
-        left = Math.Clamp(left, area.Left, area.Right - pixelWidth);
-        top = Math.Clamp(top, area.Top, area.Bottom - pixelHeight);
-        SetWindowPos(new WindowInteropHelper(this).Handle, IntPtr.Zero, left, top, pixelWidth, pixelHeight, 0x0014);
-    }
-
-    public void CapturePlacement()
-    {
-        if (!_ready || WindowState != WindowState.Normal) return;
-        var handle = new WindowInteropHelper(this).Handle;
-        if (!GetWindowRect(handle, out var rect)) return;
-        var scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
-        var placement = new WindowPlacement(rect.Left, rect.Top, ActualWidth, ActualHeight, scale);
-        var screen = Forms.Screen.FromHandle(handle);
-        _controller.Settings.Placements[$"{PlacementKey}:{screen.DeviceName}"] = placement;
-        _controller.Settings.Placements[$"{PlacementKey}:last"] = placement;
-    }
-
     private IntPtr WindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
         if (msg == 0x0312 && wParam.ToInt32() == ClickThroughHotkeyId && ClickThroughHotkeyAvailable) // WM_HOTKEY
@@ -293,8 +222,7 @@ public partial class MainWindow : Window
             // Keep asynchronous settings/native style changes outside the window procedure.
             Dispatcher.BeginInvoke(new Action(() => _ = ToggleClickThroughAsync()));
         }
-        if (msg == 0x0232) { CapturePlacement(); _ = SavePositionAsync(); } // WM_EXITSIZEMOVE
-        if (msg == 0x007E) Dispatcher.BeginInvoke(new Action(() => ApplyMode())); // display configuration changed
+        HandlePlacementMessage(msg, wParam);
         return IntPtr.Zero;
     }
 
@@ -313,18 +241,7 @@ public partial class MainWindow : Window
         _ = SavePositionAsync();
     }
 
-    private static double MonitorScale(int x, int y)
-    {
-        try
-        {
-            var monitor = MonitorFromPoint(new NativePoint { X = x, Y = y }, 2);
-            return GetDpiForMonitor(monitor, 0, out var dpi, out _) == 0 ? dpi / 96d : 1;
-        }
-        catch (DllNotFoundException) { return 1; }
-    }
-
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }
-    [StructLayout(LayoutKind.Sequential)] private struct NativePoint { public int X, Y; }
     [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr hwnd, out NativeRect rect);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool RegisterHotKey(IntPtr hwnd, int id, uint modifiers, uint key);
     [DllImport("user32.dll", SetLastError = true)] private static extern bool UnregisterHotKey(IntPtr hwnd, int id);
@@ -333,6 +250,4 @@ public partial class MainWindow : Window
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW", SetLastError = true)] private static extern IntPtr SetWindowLongPtr64(IntPtr hwnd, int index, IntPtr value);
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)] private static extern int GetWindowLong32(IntPtr hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW", SetLastError = true)] private static extern int SetWindowLong32(IntPtr hwnd, int index, int value);
-    [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
-    [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint x, out uint y);
 }

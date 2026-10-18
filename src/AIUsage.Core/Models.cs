@@ -75,6 +75,7 @@ public sealed class AppSettings
     public int WidgetTransparencyPercent { get; set; } = 10;
     public List<AccountSettings> Accounts { get; set; } = [];
     public Dictionary<string, WindowPlacement> Placements { get; set; } = [];
+    public WidgetPlacementState? WidgetPlacement { get; set; }
 }
 public sealed record WindowPlacement(double Left, double Top, double Width, double Height, double Scale = 1);
 

@@ -201,6 +201,7 @@ public sealed class AppController : IAsyncDisposable
         if (Window is null) return;
         Window.Show();
         Window.WindowState = WindowState.Normal;
+        Window.EnsurePlacementVisible();
         if (!Settings.ClickThrough) Window.Activate();
     }
     public void ShowUpdateSettings()
