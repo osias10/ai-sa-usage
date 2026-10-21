@@ -21,6 +21,7 @@ public partial class SettingsWindow : Window
     private bool _updatingForecastChoices;
     private bool _updatingStatisticsChoice;
     private bool _updatingClickThroughChoice;
+    private bool _updatingWidgetVisibleChoice;
     private bool _clearingStatistics;
     private string? _trayWindowAccountId;
     private readonly DispatcherTimer _transparencySaveTimer;
@@ -58,6 +59,7 @@ public partial class SettingsWindow : Window
         };
         _updateRetryTimer.Tick += UpdateRetryTimerTick;
         InitializeComponent();
+        StatisticsPage.Initialize(controller);
         AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(TrackTextEdit));
         DataContext = controller.ViewModel;
         AddAccountExpander.IsExpanded = controller.ViewModel.IsEmpty;
@@ -74,6 +76,7 @@ public partial class SettingsWindow : Window
         ThemeChoice.SelectedIndex = controller.Settings.Theme switch { "Dark" => 1, "Light" => 2, _ => 0 };
         WidgetTransparencySlider.Value = Math.Clamp(controller.Settings.WidgetTransparencyPercent, 0, 100);
         LastCheckedChoice.IsChecked = controller.Settings.ShowLastChecked;
+        RefreshWidgetVisibleChoice();
         RefreshForecastChoices();
         RefreshUsageStatistics();
         DisplayModeChoice.SelectedIndex = controller.Settings.ShowRemaining ? 1 : 0;
@@ -353,7 +356,20 @@ public partial class SettingsWindow : Window
     }
     private void TrayContextChanged(object? sender, EventArgs e)
     {
-        if (!_windowClosed) { RefreshTrayAccounts(); RefreshForecastChoices(); RefreshUsageStatistics(); RefreshClickThroughChoice(); }
+        if (!_windowClosed) { RefreshTrayAccounts(); RefreshForecastChoices(); RefreshUsageStatistics(); RefreshClickThroughChoice(); RefreshWidgetVisibleChoice(); }
+    }
+    private void RefreshWidgetVisibleChoice()
+    {
+        _updatingWidgetVisibleChoice = true;
+        try { WidgetVisibleChoice.IsChecked = _controller.Settings.ShowWidget; }
+        finally { _updatingWidgetVisibleChoice = false; }
+    }
+    private async void WidgetVisibleChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_loaded || _updatingWidgetVisibleChoice) return;
+        try { await _controller.SetWidgetVisibilityAsync(WidgetVisibleChoice.IsChecked == true); }
+        catch (Exception error) { _controller.ShowError(error); }
+        finally { if (!_windowClosed) RefreshWidgetVisibleChoice(); }
     }
     private void TrayAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e) => ObserveTrayAccounts();
     private void ObserveTrayAccounts()

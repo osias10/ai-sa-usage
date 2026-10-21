@@ -171,7 +171,7 @@ public partial class MainWindow : Window
     private void WidgetKeyDown(object sender, KeyEventArgs e)
     {
         if (_controller.Settings.ClickThrough) return;
-        if (e.Key == Key.Escape) { Hide(); e.Handled = true; }
+        if (e.Key == Key.Escape) { _controller.HideWidget(); e.Handled = true; }
         else if (e.Key == Key.F5)
         {
             var command = _controller.ViewModel.RefreshAllCommand;
@@ -203,15 +203,19 @@ public partial class MainWindow : Window
 
     private void FitContentClicked(object sender, RoutedEventArgs e) => FitContent();
 
-    private double ContentHeight(double width)
+    private double ContentHeight(double width) => MeasureWidgetHeight(WidgetFrame, width, MinHeight);
+
+    internal static double MeasureWidgetHeight(FrameworkElement frame, double width, double minimumHeight)
     {
-        // Collection changes can leave the ItemsPresenter dirty while its parent still
-        // has a valid measure at the previous size. Flush that layout before measuring.
-        WidgetContent.UpdateLayout();
-        WidgetContent.InvalidateMeasure();
-        // Outer margin (8) and border (2); rows are measured at their actual available width.
-        WidgetContent.Measure(new Size(Math.Max(1, width - 10), double.PositiveInfinity));
-        return Math.Max(MinHeight, Math.Ceiling(WidgetContent.DesiredSize.Height) + 10);
+        // Measure the complete viewport and chrome, not only the inner StackPanel.
+        // Their template borders/margins and per-row DPI rounding can otherwise leave
+        // a fractional overflow, which is sufficient to expose an Auto scrollbar.
+        // Flush item generation first so a freshly selected third quota is included.
+        frame.UpdateLayout();
+        frame.InvalidateMeasure();
+        frame.Measure(new Size(Math.Max(1, width), double.PositiveInfinity));
+        var scale = VisualTreeHelper.GetDpi(frame).DpiScaleY;
+        return Math.Ceiling(Math.Max(minimumHeight, frame.DesiredSize.Height) * scale) / scale;
     }
 
     private IntPtr WindowMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
@@ -237,8 +241,7 @@ public partial class MainWindow : Window
         CapturePlacement();
         if (AllowClose) return;
         e.Cancel = true;
-        Hide();
-        _ = SavePositionAsync();
+        _controller.HideWidget();
     }
 
     [StructLayout(LayoutKind.Sequential)] private struct NativeRect { public int Left, Top, Right, Bottom; }

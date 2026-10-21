@@ -1,0 +1,83 @@
+<UserControl x:Class="AIUsage.App.UsageStatisticsView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="clr-namespace:AIUsage.App"
+ Foreground="{DynamicResource TextBrush}">
+ <UserControl.Resources>
+  <ResourceDictionary>
+   <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="Styles/SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries>
+  </ResourceDictionary>
+ </UserControl.Resources>
+ <ScrollViewer HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" Padding="0,0,12,4">
+  <StackPanel>
+   <Grid Margin="0,0,0,20">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <StackPanel Margin="0,0,20,0">
+     <TextBlock Text="사용량 추이" FontSize="16" FontWeight="SemiBold" />
+     <TextBlock x:Name="StatisticsStatusLabel" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,0" TextWrapping="Wrap" />
+    </StackPanel>
+    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+     <TextBlock Text="기록 저장" FontSize="12" VerticalAlignment="Center" Margin="0,0,10,0" />
+     <CheckBox x:Name="StatisticsRecordingChoice" Style="{StaticResource SettingsSwitch}" VerticalAlignment="Center"
+      Checked="RecordingChanged" Unchecked="RecordingChanged" AutomationProperties.Name="사용량 통계 저장" />
+    </StackPanel>
+   </Grid>
+   <Grid Margin="0,0,0,16">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="*" /><ColumnDefinition Width="12" /><ColumnDefinition Width="108" /></Grid.ColumnDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+    <TextBlock Text="계정" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
+    <TextBlock Grid.Column="2" Text="한도" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
+    <TextBlock Grid.Column="4" Text="기간" FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,0,0,6" />
+    <ComboBox x:Name="StatisticsAccountChoice" Grid.Row="1" SelectedValuePath="Id" SelectionChanged="FilterChanged" AutomationProperties.Name="통계 계정">
+     <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+    </ComboBox>
+    <ComboBox x:Name="StatisticsWindowChoice" Grid.Row="1" Grid.Column="2" SelectedValuePath="Id" SelectionChanged="FilterChanged" AutomationProperties.Name="통계 한도">
+     <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Name}" /></DataTemplate></ComboBox.ItemTemplate>
+    </ComboBox>
+    <ComboBox x:Name="StatisticsRangeChoice" Grid.Row="1" Grid.Column="4" SelectedIndex="2" SelectionChanged="FilterChanged" AutomationProperties.Name="통계 기간">
+     <ComboBoxItem Content="최근 1시간" /><ComboBoxItem Content="최근 6시간" /><ComboBoxItem Content="최근 24시간" />
+    </ComboBox>
+   </Grid>
+   <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="10" Padding="16,15">
+    <StackPanel>
+     <UniformGrid Columns="4" Margin="0,0,0,12">
+      <StackPanel><TextBlock Text="마지막 사용률" FontSize="11" Foreground="{DynamicResource MutedBrush}" /><TextBlock x:Name="StatisticsLatestLabel" Text="—" FontSize="21" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel>
+      <StackPanel><TextBlock Text="최고 사용률" FontSize="11" Foreground="{DynamicResource MutedBrush}" /><TextBlock x:Name="StatisticsPeakLabel" Text="—" FontSize="21" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel>
+      <StackPanel ToolTip="같은 초기화 기간에서 연속으로 확인된 증가분만 합산합니다. 초기화·감소·수집 공백은 제외합니다."><TextBlock Text="확인된 증가" FontSize="11" Foreground="{DynamicResource MutedBrush}" /><Viewbox Stretch="Uniform" StretchDirection="DownOnly" HorizontalAlignment="Left" Height="28" Margin="0,6,8,0"><TextBlock x:Name="StatisticsIncreaseLabel" Text="—" FontSize="21" FontWeight="SemiBold" /></Viewbox></StackPanel>
+      <StackPanel><TextBlock Text="조회 기록" FontSize="11" Foreground="{DynamicResource MutedBrush}" /><TextBlock x:Name="StatisticsCountLabel" Text="0건" FontSize="21" FontWeight="SemiBold" Margin="0,6,0,0" /></StackPanel>
+     </UniformGrid>
+     <Grid Height="230">
+      <local:UsageStatisticsChart x:Name="StatisticsChart" />
+      <Border x:Name="StatisticsEmptyPanel" Background="{DynamicResource SurfaceBrush}" Padding="24" Visibility="Collapsed">
+       <TextBlock x:Name="StatisticsEmptyLabel" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" FontSize="12" LineHeight="21" />
+      </Border>
+     </Grid>
+     <TextBlock x:Name="StatisticsLastObservedLabel" FontSize="11" Foreground="{DynamicResource SubtleBrush}" Margin="0,8,0,0" TextWrapping="Wrap" />
+    </StackPanel>
+   </Border>
+   <TextBlock Text="사용한 비율 기준 · 시각은 PC 현지 시간입니다.&#x0a;초기화·감소·수집 공백은 선을 끊어 표시합니다. 증가량은 실제 사용량 전체와 다를 수 있습니다."
+    TextWrapping="Wrap" Foreground="{DynamicResource SubtleBrush}" FontSize="11" LineHeight="18" Margin="0,10,0,18" />
+   <Expander x:Name="StatisticsRecordsExpander" Header="조회 기록" Style="{StaticResource SettingsExpander}">
+    <StackPanel>
+     <TextBlock x:Name="StatisticsRecordsHint" FontSize="11" Foreground="{DynamicResource SubtleBrush}" Margin="0,0,0,8" />
+     <Grid Margin="0,0,0,7">
+      <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="85" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+      <TextBlock Text="확인 시각" FontSize="11" Foreground="{DynamicResource MutedBrush}" />
+      <TextBlock Grid.Column="1" Text="사용률" FontSize="11" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Right" Margin="0,0,16,0" />
+      <TextBlock Grid.Column="2" Text="초기화 시각" FontSize="11" Foreground="{DynamicResource MutedBrush}" />
+     </Grid>
+     <ItemsControl x:Name="StatisticsRecords">
+      <ItemsControl.ItemTemplate><DataTemplate>
+       <Grid Margin="0,5">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="85" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+        <TextBlock Text="{Binding FetchedAt}" FontSize="11" />
+        <TextBlock Grid.Column="1" Text="{Binding UsedPercent}" FontSize="11" HorizontalAlignment="Right" Margin="0,0,16,0" />
+        <TextBlock Grid.Column="2" Text="{Binding ResetsAt}" FontSize="11" Foreground="{DynamicResource MutedBrush}" />
+       </Grid>
+      </DataTemplate></ItemsControl.ItemTemplate>
+     </ItemsControl>
+    </StackPanel>
+   </Expander>
+  </StackPanel>
+ </ScrollViewer>
+</UserControl>

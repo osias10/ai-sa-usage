@@ -167,6 +167,16 @@
                <TextBlock Text="분" Foreground="{DynamicResource MutedBrush}" FontSize="11" VerticalAlignment="Center" Margin="6,0,0,0" />
               </StackPanel>
              </Grid>
+             <StackPanel Margin="0,22,0,0" Visibility="{Binding SupportsResetMessage, Converter={StaticResource BoolVisibility}}">
+              <CheckBox Content="세션 초기화 후 자동 메시지" Style="{StaticResource SettingsSwitch}" IsChecked="{Binding ResetMessageEnabled, Mode=TwoWay}"
+               AutomationProperties.Name="세션 초기화 후 자동 메시지" AutomationProperties.AutomationId="ResetMessageEnabled" />
+              <TextBlock Text="초기화 후 짧은 메시지를 한 번 보냅니다. 구독 사용량이 소모됩니다. 앱이 실행 중일 때만 동작합니다."
+               FontSize="11" Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Margin="0,7,0,0" />
+              <TextBlock Text="다음 초기화부터 적용합니다. 이미 새 세션이 시작됐거나 전송 결과가 불명확하면 다시 보내지 않습니다."
+               FontSize="11" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,5,0,0" />
+              <TextBlock Text="{Binding ResetMessageLabel}" ToolTip="{Binding ResetMessageDetail}" FontSize="11" Margin="0,8,0,0"
+               Foreground="{DynamicResource MutedBrush}" TextWrapping="Wrap" Visibility="{Binding ResetMessageEnabled, Converter={StaticResource BoolVisibility}}" />
+             </StackPanel>
              <StackPanel Margin="0,22,0,0">
               <TextBlock Text="한도별 알림" FontSize="12" FontWeight="Medium" />
               <TextBlock Text="설정한 사용률에 도달하면 알립니다. 잔여량 표시와 관계없이 사용량 기준입니다."
@@ -349,6 +359,17 @@
        <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
         <StackPanel Margin="0,0,24,0">
+         <TextBlock Text="위젯 표시" FontSize="13" />
+         <TextBlock Text="끄면 트레이에서만 실행합니다. 다시 켜면 저장된 위치에 위젯을 표시합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+        <CheckBox x:Name="WidgetVisibleChoice" Grid.Column="1" Style="{StaticResource SettingsSwitch}" Checked="WidgetVisibleChanged" Unchecked="WidgetVisibleChanged"
+         VerticalAlignment="Center" AutomationProperties.Name="위젯 표시" />
+       </Grid>
+      </Border>
+      <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,19">
+       <Grid>
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+        <StackPanel Margin="0,0,24,0">
          <TextBlock Text="항상 위에 표시" FontSize="13" />
          <TextBlock Text="다른 창 위에 위젯을 유지합니다." Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0" />
         </StackPanel>
@@ -476,6 +497,9 @@
       </Border>
      </StackPanel>
     </ScrollViewer>
+   </TabItem>
+   <TabItem Header="통계" Style="{StaticResource SettingsTabItem}">
+    <local:UsageStatisticsView x:Name="StatisticsPage" />
    </TabItem>
   </TabControl>
   <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,14,0,0" Margin="0,16,0,0">

@@ -93,6 +93,12 @@ public sealed class JsonSettingsStore(AppPaths paths)
     public Task SaveUsageStatisticsAsync(UsageStatisticsHistory history, CancellationToken cancellationToken = default)
         => SaveAsync(paths.UsageStatisticsFile, history, cancellationToken);
 
+    public async Task<ResetMessageState> LoadResetMessageStateAsync(CancellationToken cancellationToken = default)
+        => new ResetMessageEngine(await LoadAsync<ResetMessageState>(paths.ResetMessageStateFile, cancellationToken).ConfigureAwait(false)).GetState();
+
+    public Task SaveResetMessageStateAsync(ResetMessageState state, CancellationToken cancellationToken = default)
+        => SaveAsync(paths.ResetMessageStateFile, state, cancellationToken, durable: true);
+
     public async Task<string> BackupForVersionChangeAsync(string fromVersion, string toVersion, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -128,7 +134,7 @@ public sealed class JsonSettingsStore(AppPaths paths)
         }
         finally { _gate.Release(); }
     }
-    private async Task SaveAsync<T>(string file, T value, CancellationToken cancellationToken)
+    private async Task SaveAsync<T>(string file, T value, CancellationToken cancellationToken, bool durable = false)
     {
         // Serialize immediately so later UI changes cannot mutate an in-flight write.
         var bytes = JsonSerializer.SerializeToUtf8Bytes(value, Options);
@@ -137,7 +143,14 @@ public sealed class JsonSettingsStore(AppPaths paths)
         try
         {
             Directory.CreateDirectory(paths.Root);
-            await File.WriteAllBytesAsync(temporary, bytes, cancellationToken).ConfigureAwait(false);
+            if (durable)
+            {
+                await using var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write,
+                    FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.WriteThrough);
+                await stream.WriteAsync(bytes, cancellationToken).ConfigureAwait(false);
+                stream.Flush(flushToDisk: true);
+            }
+            else await File.WriteAllBytesAsync(temporary, bytes, cancellationToken).ConfigureAwait(false);
             File.Move(temporary, file, true);
         }
         finally

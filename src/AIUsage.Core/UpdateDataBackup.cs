@@ -7,7 +7,7 @@ public sealed class UpdateDataBackup(AppPaths paths, TimeProvider? timeProvider 
 {
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
     private static readonly string[] StateFiles = ["settings.json", "usage-cache.json", "usage-alerts.json",
-        "usage-statistics.json", "usage-forecast.json"];
+        "usage-statistics.json", "usage-forecast.json", "reset-messages.json"];
     private static readonly string[] BackupFiles = [.. StateFiles, "manifest.json"];
 
     public async Task<string> CreateAsync(string fromVersion, string toVersion, CancellationToken cancellationToken = default)

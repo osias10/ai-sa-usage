@@ -220,6 +220,8 @@ public sealed class AccountViewModel : ObservableModel
     private bool _forecastEnabled;
     private bool _showForecastInWidget = true;
     private bool _saveUsageStatistics;
+    private string _resetMessageLabel = "자동 메시지 · 초기화 대기";
+    private string _resetMessageDetail = "세션 초기화 후 짧은 메시지를 한 번 보냅니다.";
     private Func<string, UsageForecast>? _forecast;
     private bool _pendingWidgetSettingsChange;
     private IReadOnlyList<UsageWindowViewModel> _compactWindows = [];
@@ -237,6 +239,26 @@ public sealed class AccountViewModel : ObservableModel
         CancelCommand = new RelayCommand(() => cancel(this));
     }
     public string Id => Settings.Id;
+    public bool SupportsResetMessage => Settings.Provider is ProviderKind.Claude or ProviderKind.Codex;
+    public bool ResetMessageEnabled
+    {
+        get => SupportsResetMessage && Settings.ResetMessageEnabled;
+        set
+        {
+            if (!SupportsResetMessage || Settings.ResetMessageEnabled == value) return;
+            Settings.ResetMessageEnabled = value;
+            Changed();
+            _onSettings(this);
+        }
+    }
+    public string ResetMessageLabel => _resetMessageLabel;
+    public string ResetMessageDetail => _resetMessageDetail;
+    internal void SetResetMessageStatus(string label, string detail)
+    {
+        _resetMessageLabel = label;
+        _resetMessageDetail = detail;
+        Changed(nameof(ResetMessageLabel)); Changed(nameof(ResetMessageDetail));
+    }
     public string ProviderName => Settings.Provider switch { ProviderKind.Claude => "Claude", ProviderKind.Codex => "Codex", _ => "Antigravity" };
     public Geometry IconGeometry => ProviderIcons.Get(Settings.Provider);
     public Brush Accent => (Brush)Application.Current.FindResource("AccentBrush");

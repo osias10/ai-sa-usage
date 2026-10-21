@@ -6,9 +6,9 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.2
+Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.4 (pre-release)
 
-**Beta with improved monitor position memory:** [Download 0.4.11-beta.2](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.2), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later to discover published previews. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
+**Beta with usage charts and optional reset messages:** [Download 0.4.11-beta.4](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.4), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
 
 ## Screenshots
 
@@ -30,15 +30,18 @@ Screenshots use demo data in the Korean UI. No real account information is shown
 - **Stay up to date.** Refresh an account or all accounts manually, or set an automatic interval from 1 minute to 24 hours.
 - **Alerts at your chosen threshold.** Enable notifications for individual limits and choose the usage percentage that triggers them.
 - **Reset notifications.** In **Settings → Accounts → Account settings → Limit alerts (한도별 알림)**, enable **초기화 알림** for each limit you want to track. A fresh usage check confirms the reset before notifying you once. Reset alerts are off by default and independent of usage threshold alerts.
+- **Optional message after a reset.** Enable **세션 초기화 후 자동 메시지** separately for each Claude or Codex account to send a short message after the session limit resets. It is off by default, consumes subscription usage, and works while AI SA is running. AI SA checks the account and limits first; it does not resend when a result is uncertain. Available in beta.4; sending with real subscription accounts has not been tested.
 - **Time-to-limit estimates.** Enable **소진 예상** in **Settings → Widget** to estimate when each limit will run out from recent usage. **위젯에 예상 표시** controls the widget line separately; results remain available in account settings. Forecasting is off by default.
 - **Save usage statistics.** Enable **사용량 통계 저장** in **Settings → Widget** to record every successful refresh. Saving, forecasting, and widget display are independent. Turning saving off keeps existing records; **기록 삭제** clears them explicitly.
+- **Explore saved usage.** In **Settings → Statistics (통계)**, choose an account, limit, and the last 1, 6, or 24 hours. View the usage chart, last and highest readings, observed increase in percentage points, and individual records. Hover over the chart or use arrow keys to inspect a reading. Available in beta.4.
 - **Fit your desktop.** Adjust the size and transparency of the whole widget, use light or dark themes, keep it on top, or lock its position.
+- **Show or hide the widget.** Use **Settings → Widget → 위젯 표시** to keep the desktop widget visible or use AI SA from the tray. Your choice is remembered after restart; hiding the widget leaves account refreshes running.
 - **Remember your monitor.** Keep the widget's placement across monitor reconnections, desktop rearrangements, and scaling changes.
 - **Click through the widget.** Keep usage visible while mouse input goes to the apps underneath. Toggle it from settings, the tray menu, or **Ctrl+Alt+W**.
 
 Forecasts use saved statistics and need at least three checks spanning ten minutes with a measurable usage increase. They assume your current pace continues and distinguish an earlier reset or insufficient data. Records stay on your PC for up to 24 hours. Turning saving off stops new records; turning forecasting off stops calculation.
 
-The widget stays out of Alt+Tab and the taskbar. It fits its height to the contents when it opens, while keeping your saved width and position. Settings open in a separate window, and optional startup brings AI SA back when you sign in to Windows.
+The widget stays out of Alt+Tab and the taskbar. It fits its height to the contents when it opens, while keeping your saved width and position. Beta.4 also fixes unnecessary scrolling after fitting three or more accounts; scrolling remains when the contents exceed the screen's available height. Settings open in a separate window, and optional startup brings AI SA back when you sign in to Windows.
 
 ## Services
 
@@ -74,6 +77,7 @@ The first connection needs internet access and may download several hundred mega
 | Toggle click-through | **Settings → Widget → 클릭 통과**, the tray's **클릭 통과** checkbox, or **Ctrl+Alt+W** from any app |
 | Choose the tray number | **설정 → 위젯 → 트레이 표시 계정 / 트레이 표시 항목** |
 | Show the last check time | **설정 → 위젯 → 마지막 확인 시간** |
+| Show or hide the widget | **설정 → 위젯 → 위젯 표시**, or the tray menu; the choice survives restart |
 | Bring back a hidden widget | Choose **위젯 열기** from the tray menu |
 | Quit AI SA | Choose **종료** from the tray menu |
 
@@ -101,6 +105,6 @@ Accounts, widget positions, startup preferences, and usage statistics stay in pl
 
 A refresh icon means a check is in progress. An exclamation mark means the account needs attention after the check. If a refresh fails, the widget keeps the last successful values and their timestamp. Missing limits show `—`, and a passed reset time does not turn usage into a guessed 0%.
 
-AI SA runs on your PC without its own backend. Settings and saved usage data stay on your device; sign-in and usage requests use the providers' official tools and services. Checking usage does not send prompts or run model-generation tasks.
+AI SA runs on your PC without its own backend. Settings and saved usage data stay on your device; sign-in and usage requests use the providers' official tools and services. Checking usage does not send prompts or run model-generation tasks. The separate, optional reset-message feature does send a short prompt and consume subscription usage when you enable it.
 
 For build instructions, integration details, and verification notes, see the [development documentation](DEVELOPMENT.md) (Korean).

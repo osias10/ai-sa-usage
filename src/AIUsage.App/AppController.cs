@@ -12,7 +12,7 @@ using Microsoft.Win32;
 
 namespace AIUsage.App;
 
-public sealed class AppController : IAsyncDisposable
+public sealed partial class AppController : IAsyncDisposable
 {
     private readonly JsonSettingsStore _store;
     private readonly UsageCoordinator _coordinator;
@@ -24,6 +24,15 @@ public sealed class AppController : IAsyncDisposable
     private readonly UsageStatistics _statistics;
     private bool _clearingUsageStatistics;
     public int UsageStatisticsCount => _statistics.Count(DateTimeOffset.UtcNow);
+    public UsageStatisticsHistory GetUsageStatisticsHistory(DateTimeOffset now)
+    {
+        var identities = Settings.Accounts.Select(account => (account.Provider, account.Id, account.IdentityKey)).ToHashSet();
+        return new()
+        {
+            Samples = _statistics.GetHistory(now).Samples.Where(sample => sample.FetchedAt <= now &&
+                identities.Contains((sample.Provider, sample.AccountId, sample.IdentityKey))).ToList()
+        };
+    }
     private readonly Dictionary<string, UsageSnapshot?> _observedSnapshots = [];
     private SettingsWindow? _settingsWindow;
     private bool _disposed;
@@ -61,7 +70,7 @@ public sealed class AppController : IAsyncDisposable
 
     private AppController(AppSettings settings, JsonSettingsStore store, IEnumerable<IUsageProvider> providers,
         IReadOnlyList<UsageSnapshot> snapshots, bool demo, IDisposable? runtime = null, UsageAlertState? alertState = null,
-        UsageStatisticsHistory? statisticsHistory = null)
+        UsageStatisticsHistory? statisticsHistory = null, ResetMessageState? resetMessageState = null)
     {
         Settings = settings;
         _savedClickThrough = settings.ClickThrough;
@@ -84,10 +93,12 @@ public sealed class AppController : IAsyncDisposable
             IsDemo = demo,
             RefreshAllCommand = new AsyncCommand(RefreshAllAsync, ShowError),
             SettingsCommand = new RelayCommand(ShowSettings),
-            HideCommand = new RelayCommand(() => Window?.Hide())
+            HideCommand = new AsyncCommand(() => SetWidgetVisibilityAsync(false), ShowError)
         };
+        InitializeResetMessages(resetMessageState);
         foreach (var account in settings.Accounts.OrderBy(x => x.Order)) ViewModel.Accounts.Add(CreateAccount(account));
         ViewModel.RefreshCollections();
+        RefreshResetMessageUi();
         _coordinator.Changed += CoordinatorChanged;
         _clock = new DispatcherTimer(TimeSpan.FromSeconds(1), DispatcherPriority.Background, (_, _) => ViewModel.Tick(), Application.Current.Dispatcher);
         if (!demo)
@@ -120,7 +131,7 @@ public sealed class AppController : IAsyncDisposable
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
         ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0");
 
-    public static async Task<AppController> CreateAsync(bool demo, bool mini, bool light)
+    public static async Task<AppController> CreateAsync(bool demo, bool mini, bool light, bool statisticsDemo = false)
     {
         var paths = new AppPaths();
         var store = new JsonSettingsStore(paths);
@@ -140,7 +151,9 @@ public sealed class AppController : IAsyncDisposable
                     1 => [new("primary", "5시간 한도", 24, now.AddHours(3).AddMinutes(42), true), new("weekly", "주간 한도", 43, now.AddDays(5).AddHours(12))],
                     _ => [new("pro", "Gemini Pro", 16, now.AddHours(4).AddMinutes(5), true), new("flash", "Gemini Flash", 8, now.AddHours(4).AddMinutes(5))]
                 })).ToArray();
-            return new AppController(settings, store, Enum.GetValues<ProviderKind>().Select(kind => new DemoProvider(kind, snapshots)), snapshots, true);
+            settings.SaveUsageStatistics = statisticsDemo;
+            return new AppController(settings, store, Enum.GetValues<ProviderKind>().Select(kind => new DemoProvider(kind, snapshots)), snapshots, true,
+                statisticsHistory: statisticsDemo ? StatisticsDemoData.Create(settings.Accounts, snapshots, now) : null);
         }
         try { new UpdateDataBackup(paths).CleanupExpired(); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException)
@@ -154,11 +167,12 @@ public sealed class AppController : IAsyncDisposable
         var cached = await store.LoadSnapshotsAsync();
         var alertState = await store.LoadAlertStateAsync();
         var statisticsHistory = await store.LoadUsageStatisticsAsync();
+        var resetMessageState = await store.LoadResetMessageStateAsync();
         var runtime = new RuntimeManager(paths);
         var runner = new ProcessRunner();
         var login = new DesktopLoginInteraction();
         IUsageProvider[] providers = [new ClaudeUsageProvider(paths, runtime, runner, login), new CodexUsageProvider(paths, runtime, runner, login), new AntigravityUsageProvider(paths, runtime, runner, login)];
-        var controller = new AppController(loaded, store, providers, cached, false, runtime, alertState, statisticsHistory);
+        var controller = new AppController(loaded, store, providers, cached, false, runtime, alertState, statisticsHistory, resetMessageState);
         if (store.LastWarning is not null) controller.ViewModel.Error = store.LastWarning;
         return controller;
     }
@@ -177,6 +191,7 @@ public sealed class AppController : IAsyncDisposable
         if (!IsDemo)
         {
             _coordinator.Start();
+            _resetMessageTimer.Start();
             _updateInitialization = Updates!.InitializeAsync(Settings.AutoCheckUpdates,
                 Settings.IncludePrereleaseUpdates ? UpdateChannel.Preview : UpdateChannel.Stable, _shutdown.Token);
         }
@@ -194,15 +209,6 @@ public sealed class AppController : IAsyncDisposable
         _settingsWindow = new SettingsWindow(this);
         _settingsWindow.Closed += (_, _) => _settingsWindow = null;
         _settingsWindow.Show();
-    }
-    public void ShowWidget()
-    {
-        if (_preparingUpdate) return;
-        if (Window is null) return;
-        Window.Show();
-        Window.WindowState = WindowState.Normal;
-        Window.EnsurePlacementVisible();
-        if (!Settings.ClickThrough) Window.Activate();
     }
     public void ShowUpdateSettings()
     {
@@ -245,6 +251,8 @@ public sealed class AppController : IAsyncDisposable
             {
                 if (_connections.Count > 0) throw new InvalidOperationException("계정 연결을 마친 뒤 설치를 실행해 주세요.");
                 _preparingUpdate = true;
+                foreach (var pendingReset in _resetMessageCancellations.Values.ToArray()) pendingReset.Cancel();
+                await _resetMessageWork;
                 foreach (Window window in Application.Current.Windows)
                     if (window.IsEnabled) { enabledWindows.Add(window); window.IsEnabled = false; }
                 if (_settingsWindow is not null) await _settingsWindow.FlushPendingEditsAsync();
@@ -253,6 +261,7 @@ public sealed class AppController : IAsyncDisposable
                 await SaveSnapshotsAsync();
                 await SaveAlertStateAsync();
                 await SaveUsageStatisticsAsync();
+                await SaveResetMessagesAsync();
                 if (selectedRelease is not null && (Updates.CurrentReleaseVersion.IsPrerelease || selectedRelease.IsPrerelease))
                     await _store.BackupForVersionChangeAsync(Updates.CurrentReleaseVersion.ToString(), selectedRelease.Version, _shutdown.Token);
             },
@@ -297,6 +306,7 @@ public sealed class AppController : IAsyncDisposable
         if (IsDemo) return;
         ViewModel.Error = null;
         if (_connections.ContainsKey(account.Id)) return;
+        if (_resetMessageCancellations.TryGetValue(account.Id, out var pendingResetMessage)) pendingResetMessage.Cancel();
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
         var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _connections.Add(account.Id, cancellation);
@@ -331,12 +341,16 @@ public sealed class AppController : IAsyncDisposable
         if (IsDemo) return;
         var message = $"{account.ProviderName} · {account.Alias} 계정을 위젯에서 삭제할까요?\n다른 계정과 사용 중인 공식 앱은 유지됩니다.";
         if (MessageBox.Show(_settingsWindow ?? (Window)Window!, message, "계정 삭제", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+        // Cancel before waiting for the account gate, including an in-flight authentication check.
+        if (_resetMessageCancellations.TryGetValue(account.Id, out var pendingResetMessage)) pendingResetMessage.Cancel();
         await _coordinator.RemoveAccountAsync(account.Id, _shutdown.Token);
         Settings.Accounts.Remove(account.Settings);
         if (Settings.TrayAccountId == account.Id) Settings.TrayAccountId = null;
         _alerts.RemoveAccount(account.Id);
         _forecast.RemoveAccount(account.Id);
         _statistics.RemoveAccount(account.Id);
+        RemoveResetMessageAccount(account.Settings);
+        await SaveResetMessagesAsync();
         _observedSnapshots.Remove(account.Id);
         ViewModel.Accounts.Remove(account);
         ViewModel.RefreshCollections();
@@ -350,6 +364,8 @@ public sealed class AppController : IAsyncDisposable
     {
         try
         {
+            var resetRevision = PauseResetMessagesForSettings(account.Settings);
+            var requestedResetEnabled = account.Settings.ResetMessageEnabled;
             _alerts.SynchronizeSettings(account.Settings);
             _forecast.SynchronizeAccount(account.Settings);
             _statistics.SynchronizeAccount(account.Settings);
@@ -357,6 +373,7 @@ public sealed class AppController : IAsyncDisposable
             ViewModel.RefreshCollections();
             UsageUpdated?.Invoke(this, EventArgs.Empty);
             await SaveSettingsAsync();
+            await ApplyResetMessageSettingsAsync(account.Settings, requestedResetEnabled, resetRevision);
             await SaveAlertStateAsync();
             await SaveUsageStatisticsAsync();
         }
@@ -536,6 +553,7 @@ public sealed class AppController : IAsyncDisposable
                     {
                         // Cached snapshots and preference-change events must never trigger alerts.
                         _observedSnapshots[account.Id] = snapshot;
+                        await ObserveResetMessageAsync(account, snapshot);
                         if (Settings.SaveUsageStatistics && !_clearingUsageStatistics && _statistics.Observe(account, snapshot, DateTimeOffset.UtcNow))
                         {
                             // Forecasts consume the saved series even when their display/calculation was disabled.
@@ -591,7 +609,10 @@ public sealed class AppController : IAsyncDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        await _widgetVisibilityGate.WaitAsync();
+        _widgetVisibilityGate.Release();
         _clock.Stop();
+        _resetMessageTimer.Stop();
         SystemEvents.PowerModeChanged -= PowerChanged;
         SystemEvents.TimeChanged -= TimeChanged;
         SystemEvents.UserPreferenceChanged -= UserPreferenceChanged;
@@ -599,6 +620,7 @@ public sealed class AppController : IAsyncDisposable
         _coordinator.Changed -= CoordinatorChanged;
         _settingsWindow?.Close();
         await _shutdown.CancelAsync();
+        await _resetMessageWork;
         try { await _updateInitialization; } catch (OperationCanceledException) { }
         if (Updates is not null) await Updates.DisposeAsync();
         _updateHttp?.Dispose();

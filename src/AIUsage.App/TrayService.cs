@@ -22,6 +22,7 @@ internal sealed class TrayService : IDisposable
     private readonly Queue<IReadOnlyList<UsageAlert>> _pendingAlerts = [];
     private readonly Forms.ToolStripMenuItem _readingItem;
     internal Forms.ToolStripMenuItem ClickThroughItem { get; }
+    internal Forms.ToolStripMenuItem WidgetVisibilityItem { get; }
     private System.Drawing.Point _hoverPoint;
     private DateTimeOffset _hoverStarted;
     private string? _iconKey;
@@ -39,7 +40,16 @@ internal sealed class TrayService : IDisposable
         _readingItem = new Forms.ToolStripMenuItem("AI SA") { Enabled = false };
         menu.Items.Add(_readingItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("위젯 열기", null, (_, _) => Application.Current.Dispatcher.Invoke(controller.ShowWidget));
+        WidgetVisibilityItem = new Forms.ToolStripMenuItem("위젯 숨기기");
+        WidgetVisibilityItem.Click += async (_, _) =>
+        {
+            try
+            {
+                await Application.Current.Dispatcher.InvokeAsync(() => controller.SetWidgetVisibilityAsync(!controller.Settings.ShowWidget)).Task.Unwrap();
+            }
+            catch (Exception error) { Application.Current.Dispatcher.Invoke(() => controller.ShowError(error)); }
+        };
+        menu.Items.Add(WidgetVisibilityItem);
         ClickThroughItem = new Forms.ToolStripMenuItem("클릭 통과") { ShowShortcutKeys = true };
         ClickThroughItem.Click += async (_, _) =>
         {
@@ -87,6 +97,8 @@ internal sealed class TrayService : IDisposable
     internal void Refresh()
     {
         if (_disposed) return;
+        WidgetVisibilityItem.Text = _controller.Settings.ShowWidget ? "위젯 숨기기" : "위젯 열기";
+        WidgetVisibilityItem.Checked = _controller.Settings.ShowWidget;
         ClickThroughItem.Checked = _controller.Settings.ClickThrough;
         ClickThroughItem.ShortcutKeyDisplayString = _controller.Window?.ClickThroughHotkeyAvailable == true ? "Ctrl+Alt+W" : "";
         CurrentReading = TrayUsageFormatting.GetReading(_controller.Settings, _controller.GetStatuses(), DateTimeOffset.UtcNow);

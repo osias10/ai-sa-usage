@@ -80,7 +80,7 @@ public sealed partial class ClaudeUsageProvider(AppPaths paths, IRuntimeManager 
     [GeneratedRegex(@"\d+\.\d+\.\d+", RegexOptions.CultureInvariant)] private static partial Regex VersionPattern();
 }
 
-public sealed class CodexUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider
+public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider
 {
     public ProviderKind Kind => ProviderKind.Codex;
 

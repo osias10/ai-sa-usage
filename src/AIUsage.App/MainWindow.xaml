@@ -40,10 +40,10 @@
    </Setter>
   </Style>
  </Window.Resources>
- <Border Margin="4" Background="{DynamicResource WidgetBrush}" BorderBrush="{DynamicResource BorderBrush}"
+ <Border x:Name="WidgetFrame" Margin="4" Background="{DynamicResource WidgetBrush}" BorderBrush="{DynamicResource BorderBrush}"
   BorderThickness="1" CornerRadius="7" MouseLeftButtonDown="DragWidget"
   ToolTip="두 번 클릭: 설정 · 마우스 오른쪽 버튼: 메뉴">
-  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0" Focusable="False">
+  <ScrollViewer x:Name="WidgetScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0" Focusable="False">
    <StackPanel x:Name="WidgetContent">
     <TextBlock Text="데모" FontSize="8" Foreground="{DynamicResource MutedBrush}" Margin="8,3,8,0"
      Visibility="{Binding IsDemo, Converter={StaticResource BoolVisibility}}" />

@@ -42,6 +42,8 @@ id_ed25519
 /usage-forecast.json.*
 /usage-statistics.json
 /usage-statistics.json.*
+/reset-messages.json
+/reset-messages.json.*
 /update-state.json
 /update-state.json.*
 /updates/

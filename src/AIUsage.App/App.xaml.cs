@@ -33,7 +33,7 @@ public partial class App : Application
         DispatcherUnhandledException += HandleDispatcherError;
         try
         {
-            _controller = await AppController.CreateAsync(demo, e.Args.Contains("--mini"), e.Args.Contains("--light"));
+            _controller = await AppController.CreateAsync(demo, e.Args.Contains("--mini"), e.Args.Contains("--light"), e.Args.Contains("--settings-statistics"));
             _controller.ExitForUpdateAsync = () => ExitAsync();
             ThemeManager.Apply(_controller.Settings.Theme);
             if (e.Args.Contains("--smoke-test"))
@@ -43,15 +43,15 @@ public partial class App : Application
             _controller.Window = window;
             MainWindow = window;
             _tray = new TrayService(_controller, ExitApplication);
-            window.Show();
+            if (_controller.Settings.ShowWidget) window.Show();
             _controller.Start();
             if (e.Args.Contains("--settings") || (!demo && _controller.ViewModel.IsEmpty)) _controller.ShowSettings();
-            if (demo && (e.Args.Contains("--settings-widget") || e.Args.Contains("--settings-info")))
+            if (demo && (e.Args.Contains("--settings-widget") || e.Args.Contains("--settings-info") || e.Args.Contains("--settings-statistics")))
             {
                 _controller.ShowSettings();
                 var previewSettings = Windows.OfType<SettingsWindow>().Single();
                 var previewTabs = (System.Windows.Controls.TabControl)previewSettings.FindName("SettingsTabs");
-                previewTabs.SelectedIndex = e.Args.Contains("--settings-widget") ? 1 : 2;
+                previewTabs.SelectedIndex = e.Args.Contains("--settings-statistics") ? 3 : e.Args.Contains("--settings-widget") ? 1 : 2;
             }
             if (e.Args.Contains("--screenshot"))
             {
@@ -76,6 +76,8 @@ public partial class App : Application
                     throw new InvalidOperationException("Settings must open as an independent window.");
                 await VerifyWindowBehaviorAsync(window, settings);
                 await VerifyPlacementMemoryAsync(window);
+                await VerifyWidgetFitAsync(window);
+                await VerifyWidgetVisibilityAsync(window, settings);
                 await VerifyClickThroughAsync(window, settings);
                 await VerifyUpdateInfoAsync(window, settings);
                 var settingsTabs = (System.Windows.Controls.TabControl)settings.FindName("SettingsTabs");
@@ -92,7 +94,9 @@ public partial class App : Application
                 await Dispatcher.InvokeAsync(settings.UpdateLayout, DispatcherPriority.ApplicationIdle);
                 await VerifyStatusIndicatorsAsync(window, settings, claude);
                 await VerifyResetAlertSettingsAsync(settings, claude);
+                await VerifyResetMessageSettingsAsync(settings);
                 await VerifyForecastAsync(window, settings, claude);
+                await VerifyStatisticsAsync();
                 var menuButton = VisualChildren<System.Windows.Controls.Button>(settings).First(button => ReferenceEquals(button.DataContext, claude) && button.ContextMenu is not null);
                 menuButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Button.ClickEvent));
                 await Dispatcher.InvokeAsync(settings.UpdateLayout, DispatcherPriority.ApplicationIdle);

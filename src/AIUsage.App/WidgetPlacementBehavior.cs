@@ -147,7 +147,7 @@ public partial class MainWindow
             // Native geometry is always pixels; WPF layout sizes remain DIPs.
             if (!SetWindowPos(new WindowInteropHelper(this).Handle, IntPtr.Zero,
                 (int)Math.Round(rect.Left), (int)Math.Round(rect.Top),
-                Math.Max(1, (int)Math.Round(rect.Width)), Math.Max(1, (int)Math.Round(rect.Height)), 0x0014))
+                Math.Max(1, (int)Math.Ceiling(rect.Width)), Math.Max(1, (int)Math.Ceiling(rect.Height)), 0x0014))
                 throw new Win32Exception(Marshal.GetLastPInvokeError(), "위젯 위치를 복원하지 못했습니다.");
         }
         finally { _restoringPlacement = false; }

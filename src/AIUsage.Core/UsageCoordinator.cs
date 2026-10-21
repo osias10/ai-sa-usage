@@ -246,6 +246,58 @@ public sealed class UsageCoordinator : IAsyncDisposable
         lock (_sync) ids = _entries.Values.Where(e => !e.Removed).Select(e => e.Account.Id).ToArray();
         return Task.WhenAll(ids.Select(id => RefreshAsync(id, null, cancellationToken)));
     }
+
+    /// <summary>Runs an explicitly enabled one-shot message under the same account and process gates as login/usage reads.</summary>
+    public Task<bool> SendResetMessageAsync(string accountId, string expectedIdentity,
+        Func<AccountUsageStatus, CancellationToken, Task<bool>> reserveAttempt, CancellationToken cancellationToken)
+    {
+        lock (_sync)
+        {
+            if (_disposing || !_entries.TryGetValue(accountId, out var entry) || entry.Removed) return Task.FromResult(false);
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _operations.Add(completion.Task);
+            _ = SendResetMessageTrackedAsync(entry, expectedIdentity, reserveAttempt, cancellationToken, completion);
+            return completion.Task;
+        }
+    }
+
+    private async Task SendResetMessageTrackedAsync(Entry entry, string expectedIdentity,
+        Func<AccountUsageStatus, CancellationToken, Task<bool>> reserveAttempt, CancellationToken cancellationToken,
+        TaskCompletionSource<bool> completion)
+    {
+        await Task.Yield();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
+        var token = linked.Token;
+        try
+        {
+            await entry.Gate.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                if (!Eligible()) { completion.TrySetResult(false); return; }
+                if (_providers[entry.Account.Provider] is not IResetMessageProvider provider)
+                    throw new InvalidOperationException("이 서비스는 자동 메시지를 지원하지 않습니다.");
+                await _slots.WaitAsync(token).ConfigureAwait(false);
+                try
+                {
+                    if (!Eligible() || !await reserveAttempt(entry.Status, token).ConfigureAwait(false))
+                    { completion.TrySetResult(false); return; }
+                    token.ThrowIfCancellationRequested();
+                    if (!Eligible()) { completion.TrySetResult(false); return; }
+                    await provider.SendResetMessageAsync(entry.Account, token).ConfigureAwait(false);
+                    completion.TrySetResult(true);
+                }
+                finally { _slots.Release(); }
+            }
+            finally { entry.Gate.Release(); }
+        }
+        catch (OperationCanceledException error) { completion.TrySetCanceled(error.CancellationToken); }
+        catch (Exception error) { completion.TrySetException(error); }
+        finally { lock (_sync) _operations.Remove(completion.Task); }
+
+        bool Eligible() => !entry.Removed && entry.Account.ResetMessageEnabled &&
+            StringComparer.Ordinal.Equals(entry.Account.IdentityKey, expectedIdentity) &&
+            entry.Status.State == UsageState.Ready && !entry.Status.IsRefreshing && entry.Status.Snapshot?.IdentityKey == expectedIdentity;
+    }
     public Task RefreshAfterClockChangeAsync(CancellationToken cancellationToken = default)
     {
         lock (_sync)

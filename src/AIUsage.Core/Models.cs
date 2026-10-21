@@ -24,6 +24,8 @@ public sealed class AccountSettings
     public WidgetWindowSelection? TrayWindow { get; set; }
     public int Order { get; set; }
     public List<UsageAlertRule> UsageAlerts { get; set; } = [];
+    public bool ResetMessageEnabled { get; set; }
+    public string? ResetMessageWindowId { get; set; }
 }
 
 public sealed record WidgetWindowSelection(string Id, string Name);
@@ -61,6 +63,7 @@ public sealed class AppSettings
     public bool IncludePrereleaseUpdates { get; set; }
     public bool ShowRemaining { get; set; }
     public bool ShowLastChecked { get; set; } = true;
+    public bool ShowWidget { get; set; } = true;
     public bool UsageForecastEnabled { get; set; }
     private bool _saveUsageStatistics;
     public bool SaveUsageStatistics
@@ -132,6 +135,7 @@ public sealed class AppPaths
     public string AlertStateFile => Path.Combine(Root, "usage-alerts.json");
     public string ForecastHistoryFile => Path.Combine(Root, "usage-forecast.json");
     public string UsageStatisticsFile => Path.Combine(Root, "usage-statistics.json");
+    public string ResetMessageStateFile => Path.Combine(Root, "reset-messages.json");
     public string UpdateStateFile => Path.Combine(Root, "update-state.json");
     public string UpdatesDirectory => Path.Combine(Root, "updates");
     public string UpdateBackupsDirectory => Path.Combine(Root, "update-backups");
