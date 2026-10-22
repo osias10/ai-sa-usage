@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using AIUsage.Core;
 
@@ -18,6 +19,9 @@ public partial class MainWindow
     private bool _restoringPlacement;
     private bool _displayRestorePending;
     private bool _userMoveActive;
+    private bool _userHeightResize;
+    private double _moveStartScale = 1;
+    private bool _dpiRestoreQueued;
     private bool _fitPlacementHeight;
     private bool _temporaryPlacement;
     private string _moveTopology = "";
@@ -162,8 +166,13 @@ public partial class MainWindow
         var monitors = ReadMonitors();
         if (monitors.Count == 0 || _moveTopology != TopologyKey(monitors)) { QueueDisplayRestore(); return; }
         RememberCurrentPlacement(monitors);
+        // A drag (including one across different DPIs) is not a request for manual
+        // height. Only a real vertical sizing gesture that changed logical height is.
+        var scale = VisualTreeHelper.GetDpi(this).DpiScaleY;
+        if (_userHeightResize && Math.Abs(currentBounds.Height / scale - _moveStartBounds.Height / _moveStartScale) > 0.5 / scale)
+            _fitPlacementHeight = false;
         _moveStartBounds = currentBounds;
-        _fitPlacementHeight = false;
+        _moveStartScale = scale;
     }
 
     private void RememberCurrentPlacement(IReadOnlyList<MonitorLayout> monitors)
@@ -184,27 +193,48 @@ public partial class MainWindow
 
     private void HandlePlacementMessage(int message, IntPtr wParam)
     {
-        if (_placementClosed || _restoringPlacement) return;
+        if (_placementClosed) return;
+        if (message == 0x02E0 && !_userMoveActive) // WM_DPICHANGED
+        {
+            // SetWindowPos can deliver DPI changes synchronously during ApplyMode.
+            // Re-measure after WPF handles the new DPI and the outer restore finishes;
+            // otherwise its timer cleanup would discard this necessary second pass.
+            if (!_dpiRestoreQueued)
+            {
+                _dpiRestoreQueued = true;
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+                {
+                    _dpiRestoreQueued = false;
+                    if (!_placementClosed) QueueDisplayRestore();
+                }));
+            }
+            return;
+        }
+        if (_restoringPlacement) return;
         switch (message)
         {
             case 0x0231: // WM_ENTERSIZEMOVE: actual system move/resize loop
                 _userMoveActive = true;
+                _userHeightResize = false;
+                _moveStartScale = VisualTreeHelper.GetDpi(this).DpiScaleY;
                 _moveTopology = TopologyKey(ReadMonitors());
                 _moveStartBounds = TryReadBounds(out var initialBounds) ? initialBounds : null;
+                break;
+            case 0x0214 when _userMoveActive: // WM_SIZING, WMSZ_TOP through WMSZ_BOTTOMRIGHT
+                _userHeightResize |= wParam.ToInt64() is >= 3 and <= 8;
                 break;
             case 0x0232: // WM_EXITSIZEMOVE
                 if (_userMoveActive) CapturePlacement();
                 _userMoveActive = false;
+                _userHeightResize = false;
                 _moveStartBounds = null;
                 if (_displayRestorePending) QueueDisplayRestore();
+                else if (_fitPlacementHeight) FitHeight();
                 break;
             case 0x007E: // WM_DISPLAYCHANGE
             case 0x0219 when wParam.ToInt64() == 7: // DBT_DEVNODES_CHANGED (dock/display devices)
             case 0x001A when wParam.ToInt64() == 0x002F: // SPI_SETWORKAREA (taskbar)
             case 0x0218 when wParam.ToInt64() is 0x0007 or 0x0012: // resume
-                QueueDisplayRestore();
-                break;
-            case 0x02E0 when !_userMoveActive: // WM_DPICHANGED: let WPF process DPI, then restore
                 QueueDisplayRestore();
                 break;
         }

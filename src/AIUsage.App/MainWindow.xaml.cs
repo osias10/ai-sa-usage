@@ -36,6 +36,7 @@ public partial class MainWindow : Window
         ShowActivated = !controller.Settings.ClickThrough;
         ApplyTransparency();
         controller.ViewModel.PinnedAccounts.CollectionChanged += PinnedAccountsChanged;
+        controller.ViewModel.PropertyChanged += WidgetStateChanged;
         controller.UsageUpdated += UsageUpdated;
         controller.WidgetAppearanceUpdated += WidgetAppearanceUpdated;
         UpdateMinimumHeight();
@@ -57,6 +58,7 @@ public partial class MainWindow : Window
         {
             controller.PreferencesUpdated -= PreferencesUpdated;
             controller.ViewModel.PinnedAccounts.CollectionChanged -= PinnedAccountsChanged;
+            controller.ViewModel.PropertyChanged -= WidgetStateChanged;
             controller.UsageUpdated -= UsageUpdated;
             controller.WidgetAppearanceUpdated -= WidgetAppearanceUpdated;
             if (ClickThroughHotkeyAvailable && _source is not null)
@@ -103,7 +105,12 @@ public partial class MainWindow : Window
 
     private void UsageUpdated(object? sender, EventArgs e) => QueueLayoutUpdate();
 
-    private string LayoutKey() => (_controller.Settings.UsageForecastEnabled && _controller.Settings.ShowUsageForecast) + "|" + string.Join("|", _controller.ViewModel.PinnedAccounts.Select(account =>
+    private void WidgetStateChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainViewModel.HasError)) QueueLayoutUpdate();
+    }
+
+    private string LayoutKey() => _controller.ViewModel.HasError + "|" + (_controller.Settings.UsageForecastEnabled && _controller.Settings.ShowUsageForecast) + "|" + string.Join("|", _controller.ViewModel.PinnedAccounts.Select(account =>
         account.Id + ":" + account.HasWindows + ":" + account.CanCancelConnection + ":" +
         string.Join(",", account.CompactWindows.Select(window => window.Id))));
 

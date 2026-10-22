@@ -76,6 +76,9 @@ public partial class App : Application
                     throw new InvalidOperationException("Settings must open as an independent window.");
                 await VerifyWindowBehaviorAsync(window, settings);
                 await VerifyPlacementMemoryAsync(window);
+                await VerifyWidgetMeasureAsync(window);
+                await VerifyWidgetErrorLayoutAsync(window);
+                await VerifyResumeLayoutAsync(window);
                 await VerifyWidgetFitAsync(window);
                 await VerifyWidgetVisibilityAsync(window, settings);
                 await VerifyClickThroughAsync(window, settings);

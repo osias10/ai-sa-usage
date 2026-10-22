@@ -6,9 +6,9 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.4 (pre-release)
+Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.5 (pre-release)
 
-**Beta with usage charts and optional reset messages:** [Download 0.4.11-beta.4](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.4), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
+**Beta with fixes for empty widget space after sleep:** [Download 0.4.11-beta.5](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.5), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
 
 ## Screenshots
 
@@ -42,6 +42,8 @@ Screenshots use demo data in the Korean UI. No real account information is shown
 Forecasts use saved statistics and need at least three checks spanning ten minutes with a measurable usage increase. They assume your current pace continues and distinguish an earlier reset or insufficient data. Records stay on your PC for up to 24 hours. Turning saving off stops new records; turning forecasting off stops calculation.
 
 The widget stays out of Alt+Tab and the taskbar. It fits its height to the contents when it opens, while keeping your saved width and position. Beta.4 also fixes unnecessary scrolling after fitting three or more accounts; scrolling remains when the contents exceed the screen's available height. Settings open in a separate window, and optional startup brings AI SA back when you sign in to Windows.
+
+Beta.5 fixes excess widget height after moving the widget and resuming with a monitor temporarily unavailable. It also removes leftover space when an error banner clears and handles scaling notifications received during window restoration.
 
 ## Services
 
