@@ -6,9 +6,9 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · 0.4.11-beta.5 (pre-release)
+Windows 11 x64 · Desktop widget & system tray · 0.4.11 (stable)
 
-**Beta with fixes for empty widget space after sleep:** [Download 0.4.11-beta.5](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11-beta.5), or enable **Receive pre-release updates (프리릴리스 업데이트 받기)** in **Settings → Info** on 0.4.10 or later. [Latest stable release](https://github.com/osias10/ai-sa-usage/releases/latest).
+**Stable release with usage charts and fixes for empty widget space after sleep:** [Download 0.4.11](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11), or check for updates in **Settings → Info**. This release includes the changes from 0.4.11-beta.5 and is available with pre-release updates turned off.
 
 ## Screenshots
 
@@ -30,10 +30,10 @@ Screenshots use demo data in the Korean UI. No real account information is shown
 - **Stay up to date.** Refresh an account or all accounts manually, or set an automatic interval from 1 minute to 24 hours.
 - **Alerts at your chosen threshold.** Enable notifications for individual limits and choose the usage percentage that triggers them.
 - **Reset notifications.** In **Settings → Accounts → Account settings → Limit alerts (한도별 알림)**, enable **초기화 알림** for each limit you want to track. A fresh usage check confirms the reset before notifying you once. Reset alerts are off by default and independent of usage threshold alerts.
-- **Optional message after a reset.** Enable **세션 초기화 후 자동 메시지** separately for each Claude or Codex account to send a short message after the session limit resets. It is off by default, consumes subscription usage, and works while AI SA is running. AI SA checks the account and limits first; it does not resend when a result is uncertain. Available in beta.4; sending with real subscription accounts has not been tested.
+- **Optional message after a reset.** Enable **세션 초기화 후 자동 메시지** separately for each Claude or Codex account to send a short message after the session limit resets. It is off by default, consumes subscription usage, and works while AI SA is running. AI SA checks the account and limits first; it does not resend when a result is uncertain. Sending with real subscription accounts has not been tested.
 - **Time-to-limit estimates.** Enable **소진 예상** in **Settings → Widget** to estimate when each limit will run out from recent usage. **위젯에 예상 표시** controls the widget line separately; results remain available in account settings. Forecasting is off by default.
 - **Save usage statistics.** Enable **사용량 통계 저장** in **Settings → Widget** to record every successful refresh. Saving, forecasting, and widget display are independent. Turning saving off keeps existing records; **기록 삭제** clears them explicitly.
-- **Explore saved usage.** In **Settings → Statistics (통계)**, choose an account, limit, and the last 1, 6, or 24 hours. View the usage chart, last and highest readings, observed increase in percentage points, and individual records. Hover over the chart or use arrow keys to inspect a reading. Available in beta.4.
+- **Explore saved usage.** In **Settings → Statistics (통계)**, choose an account, limit, and the last 1, 6, or 24 hours. View the usage chart, last and highest readings, observed increase in percentage points, and individual records. Hover over the chart or use arrow keys to inspect a reading.
 - **Fit your desktop.** Adjust the size and transparency of the whole widget, use light or dark themes, keep it on top, or lock its position.
 - **Show or hide the widget.** Use **Settings → Widget → 위젯 표시** to keep the desktop widget visible or use AI SA from the tray. Your choice is remembered after restart; hiding the widget leaves account refreshes running.
 - **Remember your monitor.** Keep the widget's placement across monitor reconnections, desktop rearrangements, and scaling changes.
@@ -41,9 +41,9 @@ Screenshots use demo data in the Korean UI. No real account information is shown
 
 Forecasts use saved statistics and need at least three checks spanning ten minutes with a measurable usage increase. They assume your current pace continues and distinguish an earlier reset or insufficient data. Records stay on your PC for up to 24 hours. Turning saving off stops new records; turning forecasting off stops calculation.
 
-The widget stays out of Alt+Tab and the taskbar. It fits its height to the contents when it opens, while keeping your saved width and position. Beta.4 also fixes unnecessary scrolling after fitting three or more accounts; scrolling remains when the contents exceed the screen's available height. Settings open in a separate window, and optional startup brings AI SA back when you sign in to Windows.
+The widget stays out of Alt+Tab and the taskbar. It fits its height to the contents when it opens, while keeping your saved width and position. Version 0.4.11 fixes unnecessary scrolling after fitting three or more accounts; scrolling remains when the contents exceed the screen's available height. Settings open in a separate window, and optional startup brings AI SA back when you sign in to Windows.
 
-Beta.5 fixes excess widget height after moving the widget and resuming with a monitor temporarily unavailable. It also removes leftover space when an error banner clears and handles scaling notifications received during window restoration.
+Version 0.4.11 also fixes excess widget height after moving the widget and resuming with a monitor temporarily unavailable. It removes leftover space when an error banner clears and handles scaling notifications received during window restoration.
 
 ## Services
 
@@ -87,7 +87,7 @@ Changes are saved automatically. At 100% transparency, the whole widget is invis
 
 Click-through is off by default and stays as you set it after restarting. When enabled, the whole widget passes mouse input through, including clicks used to drag, resize, open settings, or show its right-click menu. Turn it off from the tray or with **Ctrl+Alt+W** to interact with the widget again. If another app has claimed the shortcut, use the tray menu. Settings and tray controls remain available; transparency and position lock are separate options.
 
-From **0.4.11-beta.2**, AI SA remembers the monitor and the widget's position within its available desktop area, accounting for display scaling. If that monitor disconnects, the widget temporarily appears on an available screen and returns when the original monitor reconnects. Moving or resizing it yourself makes that placement the new preference. This works automatically; position lock remains a separate option.
+AI SA remembers the monitor and the widget's position within its available desktop area, accounting for display scaling. If that monitor disconnects, the widget temporarily appears on an available screen and returns when the original monitor reconnects. Moving or resizing it yourself makes that placement the new preference. This works automatically; position lock remains a separate option.
 
 ## Updates
 
@@ -101,7 +101,7 @@ Turn it off while using a preview to return to the latest stable release—even 
 
 Accounts, widget positions, startup preferences, and usage statistics stay in place. Before a preview transition, AI SA backs up its own settings and data without copying sign-in credentials. These local backups expire after 24 hours and are cleaned on the next app launch or transition; clearing statistics also removes backed-up statistics. A preview must remain compatible with the latest stable data format before it can be published.
 
-**If you use 0.4.5, install a published version of 0.4.6 or later manually first.** Its update address was not configured, so it cannot discover this first upgrade itself. Versions before 0.4.10 receive stable releases only; update to the stable 0.4.10 release before opting into previews.
+**If you use 0.4.5, install the latest stable release manually first.** Its update address was not configured, so it cannot discover this first upgrade itself. Versions before 0.4.10 receive stable releases only; update to the latest stable release before opting into previews.
 
 ## Clear status, local settings
 
