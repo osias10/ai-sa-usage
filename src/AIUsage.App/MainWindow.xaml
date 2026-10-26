@@ -110,6 +110,21 @@
             </DataTemplate>
            </ItemsControl.ItemTemplate>
           </ItemsControl>
+          <StackPanel x:Name="WidgetCredits" Margin="0,3,0,0" Visibility="{Binding ShowCreditsInWidget, Converter={StaticResource BoolVisibility}}">
+           <ItemsControl ItemsSource="{Binding CompactCredits}">
+            <ItemsControl.ItemTemplate><DataTemplate>
+             <Grid Height="18" ToolTip="{Binding Detail}" AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="{Binding Detail}">
+              <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="1.7*" /></Grid.ColumnDefinitions>
+              <TextBlock Text="{Binding Name}" FontSize="8" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis" Margin="0,0,4,0" VerticalAlignment="Center" />
+              <TextBlock x:Name="WidgetCreditValue" Grid.Column="1" Text="{Binding CompactValue}" FontSize="10" MaxWidth="95"
+               TextAlignment="Right" HorizontalAlignment="Stretch" TextTrimming="CharacterEllipsis" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" />
+             </Grid>
+            </DataTemplate></ItemsControl.ItemTemplate>
+           </ItemsControl>
+           <TextBlock x:Name="WidgetCreditStaleLabel" Text="이전 값" Height="12" FontSize="8" TextAlignment="Right"
+            Foreground="{DynamicResource WarningBrush}" ToolTip="{Binding LastCheckedDetail}"
+            Visibility="{Binding CreditsAreStale, Converter={StaticResource BoolVisibility}}" />
+          </StackPanel>
           <Grid Height="20" Visibility="{Binding HasWindows, Converter={StaticResource InverseBoolVisibility}}">
            <TextBlock Text="{Binding StateLabel}" FontSize="9" Foreground="{DynamicResource MutedBrush}" HorizontalAlignment="Right" VerticalAlignment="Center"
             Visibility="{Binding NeedsConnection, Converter={StaticResource InverseBoolVisibility}}" />

@@ -51,7 +51,7 @@ public sealed class JsonSettingsStore(AppPaths paths)
             Guid.TryParseExact(s.AccountId, "N", out _) && s.Windows is not null &&
             s.Windows.All(w => w is not null && !string.IsNullOrWhiteSpace(w.Id) && !string.IsNullOrWhiteSpace(w.Name) &&
                 (w.UsedPercent is null || (double.IsFinite(w.UsedPercent.Value) && w.UsedPercent is >= 0 and <= 100))))
-            .ToArray();
+            .Select(snapshot => snapshot with { Credits = CreditFormatting.Normalize(snapshot.Credits) }).ToArray();
     }
     public Task SaveSnapshotsAsync(IEnumerable<UsageSnapshot> snapshots, CancellationToken cancellationToken = default)
         => SaveAsync(paths.CacheFile, snapshots.Where(s => s.State == UsageState.Ready).ToArray(), cancellationToken);

@@ -83,6 +83,7 @@ public partial class App : Application
                 await VerifyWidgetVisibilityAsync(window, settings);
                 await VerifyClickThroughAsync(window, settings);
                 await VerifyUpdateInfoAsync(window, settings);
+                await VerifyCreditsAsync(window, settings);
                 var settingsTabs = (System.Windows.Controls.TabControl)settings.FindName("SettingsTabs");
                 for (var index = 0; index < settingsTabs.Items.Count; index++)
                 {

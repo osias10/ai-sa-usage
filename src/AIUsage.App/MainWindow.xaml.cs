@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private bool _showForecast;
     private bool _layoutPending;
     private string _layoutKey = "";
+    private readonly HashSet<AccountViewModel> _layoutAccounts = [];
     internal bool AllowClose { get; set; }
     internal bool ClickThroughHotkeyAvailable { get; private set; }
 
@@ -36,6 +37,7 @@ public partial class MainWindow : Window
         ShowActivated = !controller.Settings.ClickThrough;
         ApplyTransparency();
         controller.ViewModel.PinnedAccounts.CollectionChanged += PinnedAccountsChanged;
+        SubscribeLayoutAccounts();
         controller.ViewModel.PropertyChanged += WidgetStateChanged;
         controller.UsageUpdated += UsageUpdated;
         controller.WidgetAppearanceUpdated += WidgetAppearanceUpdated;
@@ -58,6 +60,8 @@ public partial class MainWindow : Window
         {
             controller.PreferencesUpdated -= PreferencesUpdated;
             controller.ViewModel.PinnedAccounts.CollectionChanged -= PinnedAccountsChanged;
+            foreach (var account in _layoutAccounts) account.PropertyChanged -= AccountLayoutChanged;
+            _layoutAccounts.Clear();
             controller.ViewModel.PropertyChanged -= WidgetStateChanged;
             controller.UsageUpdated -= UsageUpdated;
             controller.WidgetAppearanceUpdated -= WidgetAppearanceUpdated;
@@ -101,7 +105,29 @@ public partial class MainWindow : Window
     private void ApplyTransparency()
         => Opacity = (100 - Math.Clamp(_controller.Settings.WidgetTransparencyPercent, 0, 100)) / 100d;
 
-    private void PinnedAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e) => QueueLayoutUpdate();
+    private void PinnedAccountsChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        SubscribeLayoutAccounts();
+        QueueLayoutUpdate();
+    }
+
+    private void SubscribeLayoutAccounts()
+    {
+        var pinned = _controller.ViewModel.PinnedAccounts.ToHashSet();
+        foreach (var account in _layoutAccounts.Where(account => !pinned.Contains(account)).ToArray())
+        {
+            account.PropertyChanged -= AccountLayoutChanged;
+            _layoutAccounts.Remove(account);
+        }
+        foreach (var account in pinned)
+            if (_layoutAccounts.Add(account)) account.PropertyChanged += AccountLayoutChanged;
+    }
+
+    private void AccountLayoutChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName is nameof(AccountViewModel.ShowCreditsInWidget)
+            or nameof(AccountViewModel.CompactCredits) or nameof(AccountViewModel.CreditsAreStale)) QueueLayoutUpdate();
+    }
 
     private void UsageUpdated(object? sender, EventArgs e) => QueueLayoutUpdate();
 
@@ -112,7 +138,8 @@ public partial class MainWindow : Window
 
     private string LayoutKey() => _controller.ViewModel.HasError + "|" + (_controller.Settings.UsageForecastEnabled && _controller.Settings.ShowUsageForecast) + "|" + string.Join("|", _controller.ViewModel.PinnedAccounts.Select(account =>
         account.Id + ":" + account.HasWindows + ":" + account.CanCancelConnection + ":" +
-        string.Join(",", account.CompactWindows.Select(window => window.Id))));
+        string.Join(",", account.CompactWindows.Select(window => window.Id)) + ":" + account.ShowCreditsInWidget + ":" +
+        (account.ShowCreditsInWidget ? account.CreditsAreStale + ":" + string.Join(",", account.CompactCredits.Select(credit => credit.Id)) : "")));
 
     private void QueueLayoutUpdate()
     {

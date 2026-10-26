@@ -182,6 +182,8 @@ public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeMan
     public ProviderKind Kind => ProviderKind.Antigravity;
     public const string SupportedRuntimeVersion = "1.3.1";
     private static readonly SemaphoreSlim CurrentAccountGate = new(1, 1);
+    private string? _creditsRetryIdentity;
+    private DateTimeOffset? _creditsRetryAt;
 
     public async Task<ConnectionResult> ConnectAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
@@ -216,10 +218,11 @@ public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeMan
                 ["-p", "/usage", "--output-format", "json"], TimeSpan.FromSeconds(60)), cancellationToken).ConfigureAwait(false);
             ProviderErrors.EnsureSuccess(result);
             var snapshot = AntigravityUsageParser.Parse(result.StandardOutput, account);
+            var (credit, creditMessage) = await ReadCreditsAsync(executable, account, before.IdentityKey, cancellationToken).ConfigureAwait(false);
             var after = await ReadIdentityAsync(executable, account, cancellationToken).ConfigureAwait(false);
             if (before.IdentityKey != after.IdentityKey) throw IdentityChanged();
             ProviderIdentity.EnsureMatches(account, after.IdentityKey);
-            return snapshot with { IdentityKey = after.IdentityKey };
+            return snapshot with { IdentityKey = after.IdentityKey, Credits = credit is null ? null : [credit], CreditsMessage = creditMessage };
         }
         finally { CurrentAccountGate.Release(); }
     }
@@ -227,6 +230,39 @@ public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeMan
     // Antigravity's keyring is shared with its official apps. Unlink only; never log those apps out.
     public Task DisconnectAsync(AccountSettings account, CancellationToken cancellationToken)
     { cancellationToken.ThrowIfCancellationRequested(); return Task.CompletedTask; }
+
+    private async Task<(AccountCredit? Credit, string? Message)> ReadCreditsAsync(string executable, AccountSettings account,
+        string identity, CancellationToken token)
+    {
+        // The surrounding account gate and before/after auth checks also cover this native command.
+        // A partial credit error must not discard a successful subscription quota response.
+        var retryIdentity = account.Id + ":" + identity;
+        if (_creditsRetryIdentity != retryIdentity) { _creditsRetryIdentity = retryIdentity; _creditsRetryAt = null; }
+        if (_creditsRetryAt > DateTimeOffset.UtcNow) return (null, "크레딧 조회 제한 · 재시도 대기");
+        try
+        {
+            var result = await ProviderProcess.RunAsync(runner, Request(executable, account,
+                ["-p", "/credits", "--output-format", "json"], TimeSpan.FromSeconds(30)), token).ConfigureAwait(false);
+            ProviderErrors.EnsureSuccess(result);
+            var root = ProviderJson.ReadObject(result.StandardOutput);
+            if (root.TryGetProperty("error", out var error) && error.ValueKind != JsonValueKind.Null && error.ToString().Length > 0)
+                throw ProviderErrors.FromText(error.ToString());
+            var credit = AccountCreditParsers.Antigravity(root);
+            _creditsRetryAt = null;
+            return (credit, credit is null ? "크레딧 정보 미제공" : null);
+        }
+        catch (ProviderException error)
+        {
+            if (error.State == UsageState.RateLimited)
+            {
+                var delay = error.RetryAfter ?? TimeSpan.FromMinutes(5);
+                try { _creditsRetryAt = DateTimeOffset.UtcNow.Add(delay > TimeSpan.Zero ? delay : TimeSpan.Zero); }
+                catch (ArgumentOutOfRangeException) { _creditsRetryAt = DateTimeOffset.MaxValue; }
+                return (null, "크레딧 조회 제한 · 재시도 대기");
+            }
+            return (null, "크레딧을 확인하지 못했습니다.");
+        }
+    }
 
     private async Task<string> PrepareAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
     {

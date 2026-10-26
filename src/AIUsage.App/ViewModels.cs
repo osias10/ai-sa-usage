@@ -205,6 +205,19 @@ public sealed class WidgetWindowOptionViewModel(string id, Action<WidgetWindowOp
     }
 }
 
+public sealed class AccountCreditViewModel(AccountCredit? source, Func<string> lastCheckedDetail,
+    Func<string>? unavailableLabel = null) : ObservableModel
+{
+    public AccountCredit? Source { get; } = source;
+    public string Id => Source?.Id ?? "credit:unavailable";
+    public string Name => Source?.Name ?? "크레딧";
+    public string Value => Source is { } credit ? CreditFormatting.Value(credit) : "—";
+    public string CompactValue => Source is { } credit ? CreditFormatting.CompactValue(credit) : "—";
+    public string Detail => (Source is { } credit ? CreditFormatting.Detail(credit) : unavailableLabel?.Invoke() ?? "크레딧 정보 미제공")
+        + "\n" + lastCheckedDetail();
+    internal void RefreshDetail() => Changed(nameof(Detail));
+}
+
 public sealed class AccountViewModel : ObservableModel
 {
     private readonly Action<AccountViewModel> _onSettings;
@@ -225,12 +238,15 @@ public sealed class AccountViewModel : ObservableModel
     private Func<string, UsageForecast>? _forecast;
     private bool _pendingWidgetSettingsChange;
     private IReadOnlyList<UsageWindowViewModel> _compactWindows = [];
+    private IReadOnlyList<AccountCreditViewModel> _credits = [];
+    private readonly IReadOnlyList<AccountCreditViewModel> _unavailableCredit;
     public AccountSettings Settings { get; }
     public AccountViewModel(AccountSettings settings, Func<AccountViewModel, Task> refresh, Func<AccountViewModel, Task> connect,
         Func<AccountViewModel, Task> remove, Action<AccountViewModel> onSettings, Action<AccountViewModel, int> reorder, Action<AccountViewModel> cancel, Action<Exception> onError)
     {
         Settings = settings;
         _onSettings = onSettings;
+        _unavailableCredit = [new(null, () => LastCheckedDetail, () => CreditsUnavailableLabel)];
         RefreshCommand = new AsyncCommand(() => refresh(this), onError, () => !IsRefreshing);
         ConnectCommand = new AsyncCommand(() => connect(this), onError, () => !IsRefreshing);
         RemoveCommand = new AsyncCommand(() => remove(this), onError, () => !IsRefreshing);
@@ -294,6 +310,17 @@ public sealed class AccountViewModel : ObservableModel
         get => Settings.Pinned;
         set { if (Settings.Pinned == value) return; Settings.Pinned = value; Changed(); _onSettings(this); }
     }
+    public bool ShowCreditsInWidget
+    {
+        get => Settings.ShowCreditsInWidget;
+        set
+        {
+            if (Settings.ShowCreditsInWidget == value) return;
+            Settings.ShowCreditsInWidget = value;
+            Changed();
+            _onSettings(this);
+        }
+    }
     public bool AutoRefresh
     {
         get => Settings.AutoRefresh;
@@ -323,6 +350,11 @@ public sealed class AccountViewModel : ObservableModel
         }
     }
     public bool HasWindows => Windows.Count > 0;
+    public IReadOnlyList<AccountCreditViewModel> Credits => _credits;
+    public IReadOnlyList<AccountCreditViewModel> CompactCredits => HasCredits ? _credits : _unavailableCredit;
+    public bool HasCredits => _credits.Count > 0;
+    public bool CreditsAreStale => HasCredits && _state != UsageState.Ready;
+    public string CreditsUnavailableLabel => _snapshot?.CreditsMessage ?? "크레딧 정보 미제공";
     public bool NeedsConnection => _state == UsageState.SignInRequired;
     public bool HasNotice => !string.IsNullOrWhiteSpace(Notice);
     public bool HasUsageIssue => !IsRefreshing && _state != UsageState.Ready;
@@ -400,6 +432,11 @@ public sealed class AccountViewModel : ObservableModel
                 if (_snapshot is not null) foreach (var window in _snapshot.Windows) Windows.Add(CreateUsageWindow(window));
             }
             finally { _updatingWindows = false; }
+            // Cache rows with the snapshot. Missing data in a successful response
+            // clears previous credit values instead of retaining a stale balance.
+            _credits = (_snapshot?.Credits ?? []).Where(CreditFormatting.IsValid)
+                .Select(credit => new AccountCreditViewModel(credit, () => LastCheckedDetail)).ToArray();
+            Changed(nameof(Credits)); Changed(nameof(CompactCredits)); Changed(nameof(HasCredits)); Changed(nameof(CreditsUnavailableLabel));
         }
         if (!_refreshing) _progress = null;
         RaiseAll();
@@ -416,6 +453,7 @@ public sealed class AccountViewModel : ObservableModel
         foreach (var window in _compactWindows) if (!Windows.Contains(window)) window.Tick();
         Changed(nameof(PrimaryReset)); Changed(nameof(UpdatedLabel)); Changed(nameof(Accent)); Changed(nameof(StateBrush));
         Changed(nameof(CompactUpdatedLabel)); Changed(nameof(LastCheckedDetail));
+        foreach (var credit in CompactCredits) credit.RefreshDetail();
     }
     private void RaisePrimary()
     {
@@ -544,6 +582,8 @@ public sealed class AccountViewModel : ObservableModel
         Changed(nameof(HasUsageIssue)); Changed(nameof(HasStatusIndicator)); Changed(nameof(StatusIcon));
         Changed(nameof(UpdatedLabel)); Changed(nameof(UpdatedDetail)); Changed(nameof(SelectedWindowId)); RaisePrimary();
         Changed(nameof(CompactUpdatedLabel)); Changed(nameof(LastCheckedDetail));
+        Changed(nameof(CreditsAreStale));
+        foreach (var credit in CompactCredits) credit.RefreshDetail();
         RefreshCommand.Refresh(); ConnectCommand.Refresh(); RemoveCommand.Refresh();
     }
 }

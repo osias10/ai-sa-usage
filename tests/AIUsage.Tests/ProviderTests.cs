@@ -251,6 +251,7 @@ public sealed class ProviderTests
         account.IdentityKey = "antigravity:test@example.invalid";
         var runner = new FakeRunner(new(0, "agy version 1.3.1", ""),
             new(0, "Already authenticated as test@example.invalid.\n", ""), new(0, AgFixture, ""),
+            new(0, """{"status":"SUCCESS","num_turns":0,"command":{"name":"credits","data":{"remaining_credits":1250}}}""", ""),
             new(0, "Already authenticated as " + (switchAccount ? "other" : "test") + "@example.invalid.\n", ""));
         try
         {
@@ -260,12 +261,19 @@ public sealed class ProviderTests
                 var exception = await Assert.ThrowsAsync<ProviderException>(() => provider.FetchAsync(account, null, default));
                 Assert.True(exception.IdentityChanged);
             }
-            else Assert.Equal(25, (await provider.FetchAsync(account, null, default)).Windows[0].UsedPercent);
-            Assert.Equal(4, runner.Requests.Count);
+            else
+            {
+                var snapshot = await provider.FetchAsync(account, null, default);
+                Assert.Equal(25, snapshot.Windows[0].UsedPercent);
+                Assert.Equal(1250m, Assert.Single(snapshot.Credits!).Balance);
+            }
+            Assert.Equal(5, runner.Requests.Count);
             Assert.Equal("check", runner.Requests[1].Environment["AGY_CLI_CDE_AUTH_ACTION"]);
             Assert.Equal(new[] { "-p", "/usage", "--output-format", "json" }, runner.Requests[2].Arguments);
             Assert.Null(runner.Requests[2].Environment["AGY_CLI_CDE_AUTH_ACTION"]);
-            Assert.Equal("check", runner.Requests[3].Environment["AGY_CLI_CDE_AUTH_ACTION"]);
+            Assert.Equal(new[] { "-p", "/credits", "--output-format", "json" }, runner.Requests[3].Arguments);
+            Assert.Null(runner.Requests[3].Environment["AGY_CLI_CDE_AUTH_ACTION"]);
+            Assert.Equal("check", runner.Requests[4].Environment["AGY_CLI_CDE_AUTH_ACTION"]);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

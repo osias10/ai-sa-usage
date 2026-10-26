@@ -131,6 +131,26 @@
              </ItemsControl.ItemTemplate>
             </ItemsControl>
            </StackPanel>
+           <StackPanel Margin="30,15,0,0" AutomationProperties.Name="계정 크레딧">
+            <Grid Margin="0,0,0,5">
+             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+             <TextBlock Text="크레딧 · 추가 사용량" Foreground="{DynamicResource SubtleBrush}" FontSize="10" />
+             <TextBlock x:Name="AccountCreditStaleLabel" Grid.Column="1" Text="이전 값" Foreground="{DynamicResource WarningBrush}" FontSize="10"
+              Visibility="{Binding CreditsAreStale, Converter={StaticResource BoolVisibility}}" ToolTip="{Binding LastCheckedDetail}" />
+            </Grid>
+            <ItemsControl ItemsSource="{Binding Credits}" AutomationProperties.Name="크레딧 내역">
+             <ItemsControl.ItemTemplate><DataTemplate>
+              <Grid Margin="0,5" ToolTip="{Binding Detail}" AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="{Binding Detail}">
+               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+               <TextBlock Text="{Binding Name}" FontSize="12" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="0,0,12,0" />
+               <TextBlock x:Name="AccountCreditValue" Grid.Column="1" Text="{Binding Value}" FontSize="12" FontWeight="Medium"
+                MaxWidth="280" TextTrimming="CharacterEllipsis" Typography.NumeralAlignment="Tabular" VerticalAlignment="Center" />
+              </Grid>
+             </DataTemplate></ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock x:Name="AccountCreditsUnavailable" Text="{Binding CreditsUnavailableLabel}" Foreground="{DynamicResource MutedBrush}" FontSize="11" Margin="0,5,0,0"
+             Visibility="{Binding HasCredits, Converter={StaticResource InverseBoolVisibility}}" />
+           </StackPanel>
            <TextBlock Text="{Binding Notice}" Foreground="{Binding StateBrush}" FontSize="11" TextWrapping="Wrap" Margin="30,12,0,0"
             Visibility="{Binding HasNotice, Converter={StaticResource BoolVisibility}}" />
            <Expander Header="계정 설정" Style="{StaticResource SettingsExpander}" FontSize="11" Margin="30,12,0,0">
@@ -156,6 +176,8 @@
               </ItemsControl>
               <TextBlock Text="사용량을 조회하면 한도를 선택할 수 있습니다." FontSize="11" Foreground="{DynamicResource SubtleBrush}" Margin="0,5,0,0"
                Visibility="{Binding HasWidgetWindowOptions, Converter={StaticResource InverseBoolVisibility}}" />
+              <CheckBox Content="위젯에 크레딧 표시" Style="{StaticResource SettingsSwitch}" IsChecked="{Binding ShowCreditsInWidget, Mode=TwoWay}"
+               Margin="0,10,0,0" AutomationProperties.Name="위젯에 크레딧 표시" AutomationProperties.AutomationId="ShowCreditsInWidget" />
              </StackPanel>
              <Grid Margin="0,16,0,0">
               <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>

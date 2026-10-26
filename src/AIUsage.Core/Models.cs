@@ -19,6 +19,7 @@ public sealed class AccountSettings
     public bool AutoRefresh { get; set; } = true;
     public int RefreshMinutes { get; set; } = 5;
     public bool Pinned { get; set; } = true;
+    public bool ShowCreditsInWidget { get; set; }
     public string? SelectedWindowId { get; set; }
     public List<WidgetWindowSelection>? WidgetWindows { get; set; }
     public WidgetWindowSelection? TrayWindow { get; set; }
@@ -41,10 +42,17 @@ public sealed class UsageAlertRule
 }
 
 public sealed record UsageWindow(string Id, string Name, double? UsedPercent, DateTimeOffset? ResetsAt, bool IsPrimary = false);
+// Credit balances and overage budgets are separate from subscription quota windows.
+// Null amounts mean the provider did not supply a value, never an inferred zero.
+public sealed record AccountCredit(
+    string Id, string Name, string Unit,
+    decimal? Balance = null, decimal? Used = null, decimal? Limit = null,
+    bool? IsEnabled = null, bool? HasCredits = null, bool Unlimited = false);
 public sealed record UsageSnapshot(
     ProviderKind Provider, string AccountId, string? IdentityKey, string? Plan,
     DateTimeOffset FetchedAt, IReadOnlyList<UsageWindow> Windows,
-    UsageState State = UsageState.Ready, string? Message = null);
+    UsageState State = UsageState.Ready, string? Message = null,
+    IReadOnlyList<AccountCredit>? Credits = null, string? CreditsMessage = null);
 public sealed record ConnectionResult(string IdentityKey, string? Email, string? Plan);
 public sealed record ProviderProgress(string Message, double? Percent = null);
 

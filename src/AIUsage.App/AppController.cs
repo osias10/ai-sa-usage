@@ -150,6 +150,12 @@ public sealed partial class AppController : IAsyncDisposable
                     0 => [new("session::0", "현재 세션", 37, now.AddHours(2).AddMinutes(18), true), new("weekly_all::0", "주간 전체", 68, now.AddDays(3).AddHours(7)), new("weekly_scoped:Fable:0", "주간 · Fable", 21, now.AddDays(3).AddHours(7))],
                     1 => [new("primary", "5시간 한도", 24, now.AddHours(3).AddMinutes(42), true), new("weekly", "주간 한도", 43, now.AddDays(5).AddHours(12))],
                     _ => [new("pro", "Gemini Pro", 16, now.AddHours(4).AddMinutes(5), true), new("flash", "Gemini Flash", 8, now.AddHours(4).AddMinutes(5))]
+                }, Credits: index switch
+                {
+                    0 => [new("claude:extra_usage", "추가 사용량", "USD", Used: 12.50m, Limit: 50m, IsEnabled: true)],
+                    1 => [new("codex:credits", "크레딧", "크레딧", Balance: 250.75m, HasCredits: true),
+                          new("codex:reset-credits", "초기화 크레딧", "회", Balance: 2)],
+                    _ => [new("antigravity:credits", "크레딧", "크레딧", Balance: 1250)]
                 })).ToArray();
             settings.SaveUsageStatistics = statisticsDemo;
             return new AppController(settings, store, Enum.GetValues<ProviderKind>().Select(kind => new DemoProvider(kind, snapshots)), snapshots, true,

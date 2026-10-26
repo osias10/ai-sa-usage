@@ -23,8 +23,10 @@ public static class ClaudeUsageParser
         if (!value.TryGetProperty("rate_limits", out var rateLimits) || rateLimits.ValueKind == JsonValueKind.Null)
             throw ProviderJson.Unavailable("Claude 로그인은 확인됐지만 서버에서 사용량을 받지 못했습니다. 잠시 후 다시 새로고침해 주세요.");
         if (rateLimits.ValueKind != JsonValueKind.Object) throw ProviderJson.Unsupported();
+        var extraUsage = AccountCreditParsers.Claude(rateLimits);
+        IReadOnlyList<AccountCredit>? credits = extraUsage is null ? null : [extraUsage];
         if (!rateLimits.TryGetProperty("limits", out var limits) || limits.ValueKind == JsonValueKind.Null)
-            throw ProviderJson.Unavailable("Claude 서버에서 최신 사용량을 받지 못했습니다.");
+            return ProviderJson.Snapshot(ProviderKind.Claude, account, fetchedAt, [], credits);
         if (limits.ValueKind != JsonValueKind.Array) throw ProviderJson.Unsupported();
         List<UsageWindow> windows = [];
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -47,7 +49,7 @@ public static class ClaudeUsageParser
                 ProviderJson.Percent(row, "percent"), ProviderJson.IsoTimestamp(row, "resets_at"),
                 ProviderJson.Boolean(row, "is_active") == true));
         }
-        return ProviderJson.Snapshot(ProviderKind.Claude, account, fetchedAt, windows);
+        return ProviderJson.Snapshot(ProviderKind.Claude, account, fetchedAt, windows, credits);
     }
 }
 
@@ -61,6 +63,7 @@ public static class CodexUsageParser
         if (root.TryGetProperty("result", out var result)) root = result;
         if (root.ValueKind != JsonValueKind.Object) throw ProviderJson.Unsupported();
         List<UsageWindow> windows = [];
+        List<AccountCredit> credits = [];
         var plan = account.Plan;
         if (root.TryGetProperty("rateLimitsByLimitId", out var byId) && byId.ValueKind == JsonValueKind.Object && byId.EnumerateObject().Any())
         {
@@ -69,13 +72,15 @@ public static class CodexUsageParser
         else if (root.TryGetProperty("rateLimits", out var single) && single.ValueKind == JsonValueKind.Object)
             AddBucket(single, ProviderJson.String(single, "limitId") ?? "codex");
         else throw ProviderJson.Unavailable("Codex 서버에서 구독 사용량을 받지 못했습니다.");
-        return ProviderJson.Snapshot(ProviderKind.Codex, account, fetchedAt, windows) with { Plan = plan };
+        if (AccountCreditParsers.CodexResetCredits(root) is { } resets) credits.Add(resets);
+        return ProviderJson.Snapshot(ProviderKind.Codex, account, fetchedAt, windows, credits.Count > 0 ? credits : null) with { Plan = plan };
 
         void AddBucket(JsonElement bucket, string id)
         {
             if (bucket.ValueKind != JsonValueKind.Object) throw ProviderJson.Unsupported();
             plan ??= ProviderJson.String(bucket, "planType");
             var name = ProviderJson.String(bucket, "limitName") ?? id;
+            if (AccountCreditParsers.CodexBucket(bucket, id) is { } credit) credits.Add(credit);
             foreach (var slot in new[] { "primary", "secondary" })
             {
                 if (!bucket.TryGetProperty(slot, out var window) || window.ValueKind == JsonValueKind.Null) continue;
@@ -218,12 +223,17 @@ internal static class ProviderJson
         if (item.ValueKind != JsonValueKind.Number || !item.TryGetInt64(out var seconds)) throw Unsupported();
         try { return DateTimeOffset.FromUnixTimeSeconds(seconds); } catch (ArgumentOutOfRangeException) { throw Unsupported(); }
     }
-    public static UsageSnapshot Snapshot(ProviderKind provider, AccountSettings account, DateTimeOffset? at, List<UsageWindow> windows)
+    public static UsageSnapshot Snapshot(ProviderKind provider, AccountSettings account, DateTimeOffset? at, List<UsageWindow> windows,
+        IReadOnlyList<AccountCredit>? credits = null)
     {
-        if (windows.Count == 0) throw Unavailable("표시할 구독 사용량 항목을 서버에서 받지 못했습니다.");
+        credits = CreditFormatting.Normalize(credits);
+        var hasCredits = credits?.Any(credit => credit.Balance.HasValue || credit.Used.HasValue || credit.Limit.HasValue ||
+            credit.Unlimited || credit.IsEnabled == false || credit.HasCredits.HasValue) == true;
+        if (windows.Count == 0 && !hasCredits) throw Unavailable("표시할 구독 사용량 항목을 서버에서 받지 못했습니다.");
+        var available = windows.Any(x => x.UsedPercent.HasValue) || hasCredits;
         return new(provider, account.Id, account.IdentityKey, account.Plan, at ?? DateTimeOffset.UtcNow, windows,
-            windows.Any(x => x.UsedPercent.HasValue) ? UsageState.Ready : UsageState.Unavailable,
-            windows.Any(x => x.UsedPercent.HasValue) ? null : "사용량 수치가 아직 제공되지 않았습니다.");
+            available ? UsageState.Ready : UsageState.Unavailable,
+            available ? null : "사용량 수치가 아직 제공되지 않았습니다.", credits);
     }
     public static ProviderException Unsupported(string message = "사용량 응답 형식이 변경되었습니다. 연결 구성요소를 업데이트해 주세요.") => new(UsageState.UpdateRequired, message);
     public static ProviderException Unavailable(string message) => new(UsageState.Unavailable, message);

@@ -1,4 +1,4 @@
-param([string]$PublishDirectory, [switch]$Light)
+param([string]$PublishDirectory, [switch]$Light, [ValidateRange(5, 120)][int]$TimeoutSeconds = 60)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 if (-not $PublishDirectory) { $PublishDirectory = Join-Path $repoRoot '.artifacts\publish' }
@@ -13,11 +13,15 @@ $start.WorkingDirectory = $PublishDirectory
 $start.UseShellExecute = $false
 $start.CreateNoWindow = $true
 $start.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+$start.RedirectStandardError = $true
 $start.EnvironmentVariables['PATH'] = Join-Path $env:SystemRoot 'System32'
 foreach ($variable in @('DOTNET_ROOT','DOTNET_ROOT_X64','DOTNET_HOST_PATH','CODEX_HOME','CLAUDE_CONFIG_DIR','ANTHROPIC_API_KEY','OPENAI_API_KEY','GEMINI_API_KEY')) {
     $start.EnvironmentVariables.Remove($variable)
 }
 $testProcess = [System.Diagnostics.Process]::Start($start)
-if (-not $testProcess.WaitForExit(20000)) { $testProcess.Kill(); throw 'Published UI smoke test timed out.' }
-if ($testProcess.ExitCode -ne 0) { throw "Published UI smoke test failed: $($testProcess.ExitCode)." }
+$errorOutput = $testProcess.StandardError.ReadToEndAsync()
+# The suite now includes timed monitor-resume checks and account-credit layouts.
+if (-not $testProcess.WaitForExit($TimeoutSeconds * 1000)) { $testProcess.Kill(); throw "Published UI smoke test timed out after $TimeoutSeconds seconds." }
+$diagnostic = $errorOutput.GetAwaiter().GetResult()
+if ($testProcess.ExitCode -ne 0) { throw "Published UI smoke test failed: $($testProcess.ExitCode). $diagnostic" }
 Write-Output 'PASS: self-contained UI starts and exits with developer tools absent from PATH.'
