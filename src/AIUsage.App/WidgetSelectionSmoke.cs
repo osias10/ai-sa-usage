@@ -13,6 +13,8 @@ public partial class App
     private async Task VerifyWidgetSelectionAsync(MainWindow window, SettingsWindow settings,
         AccountViewModel claude, AccountViewModel codex)
     {
+        if (_controller is not { IsDemo: true } controller)
+            throw new InvalidOperationException("Widget selection verification requires the isolated demo.");
         var tabs = (TabControl)settings.FindName("SettingsTabs");
         tabs.SelectedIndex = 0;
         settings.Width = settings.MinWidth;
@@ -79,6 +81,12 @@ public partial class App
             throw new InvalidOperationException("A long quota selection must scroll within the screen while preserving width.");
         claude.Settings.WidgetWindows = savedSelection;
         claude.RefreshMinutes = 5;
+        // Removing missing selections schedules a verification fetch; a preference
+        // edit cannot turn the retained partial snapshot into a new successful sample.
+        await controller.RefreshAllAsync();
+        await Dispatcher.InvokeAsync(window.UpdateLayout, DispatcherPriority.ApplicationIdle);
+        if (controller.GetStatuses().Any(status => status.State != UsageState.Ready || status.IsPartialResponse))
+            throw new InvalidOperationException("Restoring valid selections must recover after the isolated demo providers are refreshed.");
         ((ComboBox)settings.FindName("TrayAccountChoice")).SelectedValue = codex.Id;
         tabs.SelectedIndex = 0;
         await Dispatcher.InvokeAsync(settings.UpdateLayout, DispatcherPriority.ApplicationIdle);

@@ -20,6 +20,9 @@ public sealed partial class AppController
                 ResetMessageEnabled = scenario != "disabled",
                 ResetMessageWindowId = kind == ProviderKind.Claude ? "session::0" : "codex:primary"
             };
+            // This fixture models one session quota. Select that quota explicitly so
+            // Claude's normal session/weekly defaults do not make the fixture partial.
+            account.WidgetWindows = [new(account.ResetMessageWindowId, "세션")];
             var before = new UsageSnapshot(kind, account.Id, account.IdentityKey, "Pro", now.AddMinutes(-1),
                 [new(account.ResetMessageWindowId, "세션", 20, now.AddSeconds(-10))]);
             var engine = new ResetMessageEngine();

@@ -6,13 +6,13 @@
 
 AI SA is a small Windows widget for keeping an eye on your AI subscription limits. See how much you've used, when your limits reset, and which account needs attention without opening a usage page each time.
 
-Windows 11 x64 · Desktop widget & system tray · 0.4.11 (stable)
+Windows 11 x64 · Desktop widget & system tray · 0.4.12 (stable)
 
-**Stable release with usage charts and fixes for empty widget space after sleep:** [Download 0.4.11](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.11), or check for updates in **Settings → Info**. This release includes the changes from 0.4.11-beta.5 and is available with pre-release updates turned off.
+**Account credits, automatic retries, and clearer missing-usage status:** [Download 0.4.12](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.12), or check for updates in **Settings → Info**. Pre-release updates do not need to be enabled.
 
-**Preview: automatic retries and account credits in [0.4.12-beta.2](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.12-beta.2).** Failed usage refreshes retry after 30 seconds, with repeated failures increasing the delay up to 15 minutes. Failed manual refreshes also retry when periodic refresh is off. Provider cooldowns take priority; sign-in or tool-update requirements stop retries. Account notices and widget tooltips show the retry countdown.
+Failed usage refreshes retry after 30 seconds, with repeated failures increasing the delay up to 15 minutes. Failed manual refreshes also retry when periodic refresh is off. Provider cooldowns take priority; sign-in or tool-update requirements stop retries. Missing selected limits, including Claude session and weekly usage, now show an issue and retry instead of silently remaining at `—`. Account notices and widget tooltips show the retry countdown.
 
-See Codex credit balances and reset credits, Antigravity remaining credits, and Claude extra-usage spending and monthly limits when provided. Credits appear on the account page; enable **위젯에 크레딧 표시** in each account's settings to show them in the widget too (off by default). To update in the app, enable **프리릴리스 업데이트 받기** in **Settings → Info**, then check for updates. Real account credit values have not yet been compared with the providers' usage pages.
+See Codex credit balances and reset credits, Antigravity remaining credits, and Claude extra-usage spending and monthly limits when provided. Credits appear on the account page; enable **위젯에 크레딧 표시** in each account's settings to show them in the widget too (off by default). Real account credit values have not yet been compared with the providers' usage pages.
 
 ## Screenshots
 
@@ -109,7 +109,7 @@ Accounts, widget positions, startup preferences, and usage statistics stay in pl
 
 ## Clear status, local settings
 
-A refresh icon means a check is in progress. An exclamation mark means the account needs attention after the check. If a refresh fails, the widget keeps the last successful values and their timestamp. Missing limits show `—`, and a passed reset time does not turn usage into a guessed 0%.
+A refresh icon means a check is in progress. An exclamation mark means the account needs attention after the check. If the entire refresh fails, the widget keeps its previous values and timestamp. A partial response updates the values that arrived, keeps missing selected limits at `—`, and shows a partial-check timestamp and retry notice. The last complete result remains saved separately. A passed reset time does not turn usage into a guessed 0%.
 
 AI SA runs on your PC without its own backend. Settings and saved usage data stay on your device; sign-in and usage requests use the providers' official tools and services. Checking usage does not send prompts or run model-generation tasks. The separate, optional reset-message feature does send a short prompt and consume subscription usage when you enable it.
 

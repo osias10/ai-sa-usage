@@ -226,6 +226,7 @@ public sealed class AccountViewModel : ObservableModel
     private string? _message;
     private bool _refreshing;
     private bool _retryScheduled;
+    private bool _partialResponse;
     private DateTimeOffset? _nextAttemptAt;
     private string? _progress;
     private bool _canCancelConnection;
@@ -355,7 +356,8 @@ public sealed class AccountViewModel : ObservableModel
     public IReadOnlyList<AccountCreditViewModel> Credits => _credits;
     public IReadOnlyList<AccountCreditViewModel> CompactCredits => HasCredits ? _credits : _unavailableCredit;
     public bool HasCredits => _credits.Count > 0;
-    public bool CreditsAreStale => HasCredits && _state != UsageState.Ready;
+    private bool IsPartialSnapshot => _snapshot?.State == UsageState.Unavailable;
+    public bool CreditsAreStale => HasCredits && _state != UsageState.Ready && !_partialResponse;
     public string CreditsUnavailableLabel => _snapshot?.CreditsMessage ?? "크레딧 정보 미제공";
     public bool NeedsConnection => _state == UsageState.SignInRequired;
     public bool HasNotice => !string.IsNullOrWhiteSpace(Notice);
@@ -397,6 +399,8 @@ public sealed class AccountViewModel : ObservableModel
             if (_snapshot is null) return "조회 기록 없음";
             var elapsed = DateTimeOffset.UtcNow - _snapshot.FetchedAt;
             string label = elapsed.TotalSeconds < 60 ? "방금 갱신" : elapsed.TotalHours < 1 ? $"{Math.Max(1, (int)elapsed.TotalMinutes)}분 전 갱신" : $"{Math.Max(1, (int)elapsed.TotalHours)}시간 전 갱신";
+            if (IsPartialSnapshot)
+                return _partialResponse ? $"일부 확인 · {label}" : $"이전 값 · 일부 확인 · {label}";
             return _state == UsageState.Ready ? label : $"이전 값 · {label}";
         }
     }
@@ -409,11 +413,14 @@ public sealed class AccountViewModel : ObservableModel
             var fetchedAt = _snapshot.FetchedAt.ToLocalTime();
             var now = DateTimeOffset.Now;
             var format = fetchedAt.Date == now.Date ? "HH:mm:ss" : fetchedAt.Year == now.Year ? "MM/dd HH:mm:ss" : "yyyy/MM/dd HH:mm:ss";
-            var prefix = _state == UsageState.Ready ? "확인" : "이전 확인";
+            var prefix = IsPartialSnapshot
+                ? _partialResponse ? "일부 확인" : "이전 일부 확인"
+                : _state == UsageState.Ready ? "확인" : "이전 확인";
             return $"{prefix} {fetchedAt.ToString(format, CultureInfo.InvariantCulture)}";
         }
     }
-    public string LastCheckedDetail => _snapshot is null ? "아직 사용량을 확인하지 못했습니다." : $"마지막 성공 확인: {UpdatedDetail}\n{UpdatedLabel}";
+    public string LastCheckedDetail => _snapshot is null ? "아직 사용량을 확인하지 못했습니다."
+        : $"{(IsPartialSnapshot ? "마지막 부분 확인" : "마지막 성공 확인")}: {UpdatedDetail}\n{UpdatedLabel}";
     public ObservableCollection<UsageWindowViewModel> Windows { get; } = [];
     public ObservableCollection<WidgetWindowOptionViewModel> WidgetWindowOptions { get; } = [];
     public bool HasWidgetWindowOptions => WidgetWindowOptions.Count > 0;
@@ -438,6 +445,7 @@ public sealed class AccountViewModel : ObservableModel
         _message = status.Message;
         _refreshing = status.IsRefreshing;
         _retryScheduled = status.IsRetryScheduled;
+        _partialResponse = status.IsPartialResponse;
         _nextAttemptAt = status.NextAttemptAt;
         if (!ReferenceEquals(_snapshot, status.Snapshot))
         {

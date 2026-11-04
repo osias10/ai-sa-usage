@@ -41,7 +41,7 @@ public sealed class UsageAlertRule
     public bool ResetEnabled { get; set; }
 }
 
-public sealed record UsageWindow(string Id, string Name, double? UsedPercent, DateTimeOffset? ResetsAt, bool IsPrimary = false);
+public sealed record UsageWindow(string Id, string Name, double? UsedPercent, DateTimeOffset? ResetsAt, bool IsPrimary = false, bool IsDisabled = false);
 // Credit balances and overage budgets are separate from subscription quota windows.
 // Null amounts mean the provider did not supply a value, never an inferred zero.
 public sealed record AccountCredit(

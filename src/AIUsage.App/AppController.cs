@@ -532,6 +532,7 @@ public sealed partial class AppController : IAsyncDisposable
         if (selection is not null && (string.IsNullOrWhiteSpace(selection.Id) || string.IsNullOrWhiteSpace(selection.Name)))
             throw new ArgumentException("표시할 한도를 선택해 주세요.");
         account.TrayWindow = selection;
+        _coordinator.UpdateAccount(account);
         UsageUpdated?.Invoke(this, EventArgs.Empty);
         await SaveSettingsAsync();
     }

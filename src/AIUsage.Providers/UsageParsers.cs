@@ -139,7 +139,7 @@ public static partial class AntigravityUsageParser
                 occurrences[id] = ordinal + 1;
                 windows.Add(new UsageWindow(id + ":" + ordinal, label,
                     !disabled && remaining.HasValue ? Math.Round((1 - remaining.Value) * 100, 4) : null,
-                    ProviderJson.IsoTimestamp(bucket, "reset_time"), windows.Count == 0));
+                    ProviderJson.IsoTimestamp(bucket, "reset_time"), windows.Count == 0, disabled));
             }
         }
         return ProviderJson.Snapshot(ProviderKind.Antigravity, account, fetchedAt, windows);
@@ -230,7 +230,8 @@ internal static class ProviderJson
         var hasCredits = credits?.Any(credit => credit.Balance.HasValue || credit.Used.HasValue || credit.Limit.HasValue ||
             credit.Unlimited || credit.IsEnabled == false || credit.HasCredits.HasValue) == true;
         if (windows.Count == 0 && !hasCredits) throw Unavailable("표시할 구독 사용량 항목을 서버에서 받지 못했습니다.");
-        var available = windows.Any(x => x.UsedPercent.HasValue) || hasCredits;
+        // A credit response must not hide missing quota values from an otherwise present limit.
+        var available = windows.Count == 0 ? hasCredits : windows.Any(x => x.UsedPercent.HasValue) || windows.All(x => x.IsDisabled);
         return new(provider, account.Id, account.IdentityKey, account.Plan, at ?? DateTimeOffset.UtcNow, windows,
             available ? UsageState.Ready : UsageState.Unavailable,
             available ? null : "사용량 수치가 아직 제공되지 않았습니다.", credits);

@@ -1,7 +1,7 @@
 namespace AIUsage.Core;
 
 public sealed record AccountUsageStatus(string AccountId, UsageSnapshot? Snapshot, UsageState State,
-    string? Message, bool IsRefreshing, DateTimeOffset? NextAttemptAt, bool IsRetryScheduled = false);
+    string? Message, bool IsRefreshing, DateTimeOffset? NextAttemptAt, bool IsRetryScheduled = false, bool IsPartialResponse = false);
 public sealed class AccountUsageChangedEventArgs(AccountUsageStatus status) : EventArgs
 {
     public AccountUsageStatus Status { get; } = status;
@@ -13,6 +13,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
     private sealed class Entry(AccountSettings account, UsageSnapshot? snapshot)
     {
         public AccountSettings Account = account;
+        public UsageSnapshot? LastCompleteSnapshot = snapshot?.State == UsageState.Ready ? snapshot : null;
         public AccountUsageStatus Status = new(account.Id, snapshot,
             snapshot?.State ?? UsageState.SignInRequired, snapshot?.Message, false, null);
         public readonly SemaphoreSlim Gate = new(1, 1);
@@ -52,7 +53,20 @@ public sealed class UsageCoordinator : IAsyncDisposable
             if (account.IdentityKey is not null && snapshot is null)
                 entry.Status = entry.Status with { State = UsageState.Unavailable, Message = "첫 사용량 조회를 기다리는 중" };
             if (snapshot is not null)
+            {
                 entry.Status = entry.Status with { NextAttemptAt = snapshot.FetchedAt.AddMinutes(account.RefreshMinutes) };
+                if (UsageCompleteness.FindIssue(account, snapshot, null) is { } issue)
+                {
+                    entry.LastCompleteSnapshot = null;
+                    entry.RetryDelay = TimeSpan.FromSeconds(30);
+                    entry.Status = entry.Status with
+                    {
+                        Snapshot = snapshot with { State = UsageState.Unavailable, Message = issue },
+                        State = UsageState.Unavailable, Message = issue, NextAttemptAt = _time.GetUtcNow(),
+                        IsRetryScheduled = account.IdentityKey is not null, IsPartialResponse = true
+                    };
+                }
+            }
             _entries.Add(account.Id, entry);
         }
     }
@@ -60,7 +74,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
     public AccountUsageStatus GetStatus(string accountId) { lock (_sync) return Find(accountId).Status; }
     public IReadOnlyList<UsageSnapshot> GetSnapshots()
     {
-        lock (_sync) return _entries.Values.Select(e => e.Status.Snapshot).OfType<UsageSnapshot>().ToArray();
+        lock (_sync) return _entries.Values.Select(e => e.LastCompleteSnapshot).OfType<UsageSnapshot>().ToArray();
     }
     public void AddAccount(AccountSettings account)
     {
@@ -87,6 +101,34 @@ public sealed class UsageCoordinator : IAsyncDisposable
                 NextAttemptAt = entry.Status.IsRetryScheduled || entry.Status.State != UsageState.Ready
                     ? entry.Status.NextAttemptAt : entry.Status.Snapshot?.FetchedAt.AddMinutes(account.RefreshMinutes)
             };
+            if (entry.Status.Snapshot is { } snapshot && !entry.Status.IsRefreshing &&
+                (entry.Status.State == UsageState.Ready || entry.Status.IsPartialResponse))
+            {
+                var issue = UsageCompleteness.FindIssue(account, snapshot, entry.LastCompleteSnapshot);
+                if (issue is not null && entry.Status.State == UsageState.Ready)
+                {
+                    entry.RetryDelay = TimeSpan.FromSeconds(30);
+                    entry.Status = entry.Status with
+                    {
+                        Snapshot = snapshot with { State = UsageState.Unavailable, Message = issue },
+                        State = UsageState.Unavailable, Message = issue,
+                        IsRetryScheduled = account.IdentityKey is not null, IsPartialResponse = true,
+                        NextAttemptAt = _time.GetUtcNow().Add(entry.RetryDelay)
+                    };
+                }
+                else if (issue is not null && entry.Status.IsPartialResponse)
+                {
+                    entry.Status = entry.Status with
+                    {
+                        Snapshot = snapshot with { Message = issue }, Message = issue
+                    };
+                }
+                else if (issue is null && entry.Status.IsPartialResponse && entry.ProviderRetryAt is null)
+                {
+                    // Verify the new selection with a real response; a preference edit is not a fresh sample.
+                    entry.Status = entry.Status with { NextAttemptAt = _time.GetUtcNow(), Message = "표시할 사용량을 다시 확인합니다." };
+                }
+            }
             status = entry.Status;
         }
         Publish(status);
@@ -129,6 +171,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
                 lock (_sync)
                 {
                     var changedIdentity = entry.Account.IdentityKey != result.IdentityKey;
+                    if (changedIdentity) entry.LastCompleteSnapshot = null;
                     entry.Account.IdentityKey = result.IdentityKey;
                     entry.Account.Email = result.Email;
                     entry.Account.Plan = result.Plan;
@@ -137,7 +180,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
                     entry.PollingSuspended = false;
                     entry.ResetRequests.Clear();
                     entry.Status = entry.Status with { Snapshot = changedIdentity ? null : entry.Status.Snapshot,
-                        State = UsageState.Ready, Message = null, NextAttemptAt = null, IsRetryScheduled = false };
+                        State = UsageState.Ready, Message = null, NextAttemptAt = null, IsRetryScheduled = false, IsPartialResponse = false };
                 }
             }
             catch (OperationCanceledException) { SetStatus(entry, s => s with { Message = "계정 연결이 취소되었습니다." }); throw; }
@@ -204,19 +247,31 @@ public sealed class UsageCoordinator : IAsyncDisposable
                     var snapshot = await _providers[entry.Account.Provider].FetchAsync(entry.Account, progress, token).ConfigureAwait(false);
                     if (snapshot.AccountId != entry.Account.Id || snapshot.Provider != entry.Account.Provider)
                         throw new ProviderException(UsageState.Unavailable, "응답 계정이 일치하지 않습니다.");
-                    if (snapshot.State != UsageState.Ready)
+                    if (snapshot.State is not (UsageState.Ready or UsageState.Unavailable))
                         throw new ProviderException(snapshot.State, snapshot.Message ?? "사용량을 확인할 수 없습니다.");
                     if (string.IsNullOrWhiteSpace(snapshot.IdentityKey))
                         throw new ProviderException(UsageState.SignInRequired, "계정 정보를 확인할 수 없습니다. 다시 연결해 주세요.");
                     if (entry.Account.IdentityKey is not null && snapshot.IdentityKey != entry.Account.IdentityKey)
                     {
-                        SetStatus(entry, s => s with { Snapshot = null });
-                        throw new ProviderException(UsageState.SignInRequired, "로그인 계정이 변경되었습니다. 계정을 다시 연결해 주세요.");
+                        throw new ProviderException(UsageState.SignInRequired, "로그인 계정이 변경되었습니다. 계정을 다시 연결해 주세요.") { IdentityChanged = true };
                     }
+                    string? issue;
                     lock (_sync)
                     {
                         entry.Account.IdentityKey ??= snapshot.IdentityKey;
                         entry.Account.Plan = snapshot.Plan;
+                        issue = UsageCompleteness.FindIssue(entry.Account, snapshot, entry.LastCompleteSnapshot);
+                    }
+                    if (issue is not null || snapshot.State == UsageState.Unavailable)
+                    {
+                        issue ??= snapshot.Message ?? "사용량 수치를 확인하지 못했습니다.";
+                        RecordFailure(entry, new ProviderException(UsageState.Unavailable, issue),
+                            partialSnapshot: snapshot with { State = UsageState.Unavailable, Message = issue });
+                        return;
+                    }
+                    lock (_sync)
+                    {
+                        entry.LastCompleteSnapshot = snapshot;
                         entry.Failures = 0;
                         entry.ProviderRetryAt = null;
                         entry.PollingSuspended = false;
@@ -225,7 +280,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
                         entry.ResetRequests.IntersectWith(keys);
                     }
                     SetStatus(entry, s => s with { Snapshot = snapshot, State = UsageState.Ready, Message = null,
-                        NextAttemptAt = _time.GetUtcNow().AddMinutes(entry.Account.RefreshMinutes), IsRetryScheduled = false });
+                        NextAttemptAt = _time.GetUtcNow().AddMinutes(entry.Account.RefreshMinutes), IsRetryScheduled = false, IsPartialResponse = false });
                 }
                 finally { _slots.Release(); }
             }
@@ -237,7 +292,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
         finally { completion.TrySetResult(); lock (_sync) _operations.Remove(completion.Task); }
     }
 
-    private void RecordFailure(Entry entry, Exception error, bool retryRefresh = true)
+    private void RecordFailure(Entry entry, Exception error, bool retryRefresh = true, UsageSnapshot? partialSnapshot = null)
     {
         var providerError = error as ProviderException;
         var state = providerError?.State ?? UsageState.Offline;
@@ -245,6 +300,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
         lock (_sync)
         {
             if (entry.Removed) return;
+            if (providerError?.IdentityChanged == true) entry.LastCompleteSnapshot = null;
             var delay = providerError?.RetryAfter ?? TimeSpan.FromSeconds(Math.Min(900, 30 * Math.Pow(2, entry.Failures)));
             if (delay < TimeSpan.FromSeconds(1)) delay = TimeSpan.FromSeconds(1);
             entry.Failures = Math.Min(5, entry.Failures + 1);
@@ -258,9 +314,9 @@ public sealed class UsageCoordinator : IAsyncDisposable
             entry.RetryDelay = shouldRetry ? delay : TimeSpan.Zero;
             entry.Status = status = entry.Status with
             {
-                State = state, Snapshot = providerError?.IdentityChanged == true ? null : entry.Status.Snapshot,
+                State = state, Snapshot = providerError?.IdentityChanged == true ? null : partialSnapshot ?? entry.Status.Snapshot,
                 Message = providerError?.Message ?? "연결을 확인하지 못했습니다.",
-                NextAttemptAt = shouldRetry ? retryAt : null, IsRetryScheduled = shouldRetry
+                NextAttemptAt = shouldRetry ? retryAt : null, IsRetryScheduled = shouldRetry, IsPartialResponse = partialSnapshot is not null
             };
         }
         Publish(status);
