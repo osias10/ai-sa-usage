@@ -1,7 +1,7 @@
 namespace AIUsage.Core;
 
 public sealed record AccountUsageStatus(string AccountId, UsageSnapshot? Snapshot, UsageState State,
-    string? Message, bool IsRefreshing, DateTimeOffset? NextAttemptAt);
+    string? Message, bool IsRefreshing, DateTimeOffset? NextAttemptAt, bool IsRetryScheduled = false);
 public sealed class AccountUsageChangedEventArgs(AccountUsageStatus status) : EventArgs
 {
     public AccountUsageStatus Status { get; } = status;
@@ -19,6 +19,9 @@ public sealed class UsageCoordinator : IAsyncDisposable
         public Task? Pending;
         public bool Removed;
         public int Failures;
+        public DateTimeOffset? ProviderRetryAt;
+        public TimeSpan RetryDelay;
+        public bool PollingSuspended;
         public readonly HashSet<string> ResetRequests = [];
     }
     private readonly object _sync = new();
@@ -81,8 +84,8 @@ public sealed class UsageCoordinator : IAsyncDisposable
             entry.Account = account;
             entry.Status = entry.Status with
             {
-                NextAttemptAt = entry.Status.State == UsageState.RateLimited ? entry.Status.NextAttemptAt
-                    : entry.Status.Snapshot?.FetchedAt.AddMinutes(account.RefreshMinutes)
+                NextAttemptAt = entry.Status.IsRetryScheduled || entry.Status.State != UsageState.Ready
+                    ? entry.Status.NextAttemptAt : entry.Status.Snapshot?.FetchedAt.AddMinutes(account.RefreshMinutes)
             };
             status = entry.Status;
         }
@@ -130,13 +133,15 @@ public sealed class UsageCoordinator : IAsyncDisposable
                     entry.Account.Email = result.Email;
                     entry.Account.Plan = result.Plan;
                     entry.Failures = 0;
+                    entry.ProviderRetryAt = null;
+                    entry.PollingSuspended = false;
                     entry.ResetRequests.Clear();
                     entry.Status = entry.Status with { Snapshot = changedIdentity ? null : entry.Status.Snapshot,
-                        State = UsageState.Ready, Message = null, NextAttemptAt = null };
+                        State = UsageState.Ready, Message = null, NextAttemptAt = null, IsRetryScheduled = false };
                 }
             }
             catch (OperationCanceledException) { SetStatus(entry, s => s with { Message = "계정 연결이 취소되었습니다." }); throw; }
-            catch (Exception error) { RecordFailure(entry, error); throw; }
+            catch (Exception error) { RecordFailure(entry, error, retryRefresh: false); throw; }
             finally { SetStatus(entry, s => s with { IsRefreshing = false }); entry.Gate.Release(); }
         }
         finally { _logins.Release(); }
@@ -166,7 +171,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
         {
             // A settings change may remove an account after a polling batch took its snapshot.
             if (_disposing || !_entries.TryGetValue(accountId, out var entry) || entry.Removed) return Task.CompletedTask;
-            if (entry.Status.State == UsageState.RateLimited && entry.Status.NextAttemptAt > _time.GetUtcNow())
+            if (entry.ProviderRetryAt > _time.GetUtcNow())
                 return Task.CompletedTask;
             if (entry.Pending is { IsCompleted: false }) task = entry.Pending;
             else
@@ -190,7 +195,8 @@ public sealed class UsageCoordinator : IAsyncDisposable
             await entry.Gate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                if (entry.Removed) return;
+                // A login ahead of this queued refresh may have supplied a new Retry-After.
+                if (entry.Removed || entry.ProviderRetryAt > _time.GetUtcNow()) return;
                 SetStatus(entry, s => s with { IsRefreshing = true, Message = "사용량 조회 중" });
                 await _slots.WaitAsync(token).ConfigureAwait(false);
                 try
@@ -212,12 +218,14 @@ public sealed class UsageCoordinator : IAsyncDisposable
                         entry.Account.IdentityKey ??= snapshot.IdentityKey;
                         entry.Account.Plan = snapshot.Plan;
                         entry.Failures = 0;
+                        entry.ProviderRetryAt = null;
+                        entry.PollingSuspended = false;
                         var keys = snapshot.Windows.Where(w => w.ResetsAt is not null)
                             .Select(w => ResetKey(w)).ToHashSet();
                         entry.ResetRequests.IntersectWith(keys);
                     }
                     SetStatus(entry, s => s with { Snapshot = snapshot, State = UsageState.Ready, Message = null,
-                        NextAttemptAt = _time.GetUtcNow().AddMinutes(entry.Account.RefreshMinutes) });
+                        NextAttemptAt = _time.GetUtcNow().AddMinutes(entry.Account.RefreshMinutes), IsRetryScheduled = false });
                 }
                 finally { _slots.Release(); }
             }
@@ -229,15 +237,33 @@ public sealed class UsageCoordinator : IAsyncDisposable
         finally { completion.TrySetResult(); lock (_sync) _operations.Remove(completion.Task); }
     }
 
-    private void RecordFailure(Entry entry, Exception error)
+    private void RecordFailure(Entry entry, Exception error, bool retryRefresh = true)
     {
         var providerError = error as ProviderException;
         var state = providerError?.State ?? UsageState.Offline;
-        var delay = providerError?.RetryAfter ?? TimeSpan.FromMinutes(Math.Min(15, Math.Pow(2, Math.Min(4, entry.Failures++))));
-        if (delay < TimeSpan.FromSeconds(1)) delay = TimeSpan.FromSeconds(1);
-        SetStatus(entry, s => s with { State = state, Snapshot = providerError?.IdentityChanged == true ? null : s.Snapshot,
-            Message = providerError?.Message ?? "연결을 확인한 뒤 다시 시도해 주세요.",
-            NextAttemptAt = _time.GetUtcNow().Add(delay) });
+        AccountUsageStatus status;
+        lock (_sync)
+        {
+            if (entry.Removed) return;
+            var delay = providerError?.RetryAfter ?? TimeSpan.FromSeconds(Math.Min(900, 30 * Math.Pow(2, entry.Failures)));
+            if (delay < TimeSpan.FromSeconds(1)) delay = TimeSpan.FromSeconds(1);
+            entry.Failures = Math.Min(5, entry.Failures + 1);
+            var now = _time.GetUtcNow();
+            // A provider deadline is a minimum even for an explicit manual request.
+            var retryAt = delay > DateTimeOffset.MaxValue - now ? DateTimeOffset.MaxValue : now.Add(delay);
+            entry.ProviderRetryAt = providerError?.RetryAfter is not null || state == UsageState.RateLimited ? retryAt : null;
+            entry.PollingSuspended = !retryRefresh;
+            var shouldRetry = retryRefresh && !string.IsNullOrWhiteSpace(entry.Account.IdentityKey) &&
+                state is UsageState.Offline or UsageState.Unavailable or UsageState.RateLimited;
+            entry.RetryDelay = shouldRetry ? delay : TimeSpan.Zero;
+            entry.Status = status = entry.Status with
+            {
+                State = state, Snapshot = providerError?.IdentityChanged == true ? null : entry.Status.Snapshot,
+                Message = providerError?.Message ?? "연결을 확인하지 못했습니다.",
+                NextAttemptAt = shouldRetry ? retryAt : null, IsRetryScheduled = shouldRetry
+            };
+        }
+        Publish(status);
     }
 
     public Task RefreshAllAsync(CancellationToken cancellationToken = default)
@@ -300,12 +326,27 @@ public sealed class UsageCoordinator : IAsyncDisposable
     }
     public Task RefreshAfterClockChangeAsync(CancellationToken cancellationToken = default)
     {
+        List<AccountUsageStatus> changed = [];
         lock (_sync)
         {
+            var now = _time.GetUtcNow();
             foreach (var entry in _entries.Values)
-                if (entry.Status.State is UsageState.Ready or UsageState.Offline or UsageState.Unavailable)
+            {
+                if (!entry.Status.IsRetryScheduled && entry.Status.State == UsageState.Ready)
                     entry.Status = entry.Status with { NextAttemptAt = null };
+                else if (entry.Status.IsRetryScheduled && entry.ProviderRetryAt is null)
+                {
+                    // A backwards clock change must not turn a local 30-second delay into hours.
+                    var latest = entry.RetryDelay > DateTimeOffset.MaxValue - now ? DateTimeOffset.MaxValue : now.Add(entry.RetryDelay);
+                    if (entry.Status.NextAttemptAt > latest)
+                    {
+                        entry.Status = entry.Status with { NextAttemptAt = latest };
+                        changed.Add(entry.Status);
+                    }
+                }
+            }
         }
+        foreach (var status in changed) Publish(status);
         // Keep provider Retry-After deadlines intact; a clock adjustment must not bypass a 429.
         return RefreshDueAsync(cancellationToken);
     }
@@ -317,9 +358,15 @@ public sealed class UsageCoordinator : IAsyncDisposable
             var now = _time.GetUtcNow();
             foreach (var entry in _entries.Values)
             {
-                if (entry.Removed || !entry.Account.AutoRefresh || entry.Account.IdentityKey is null ||
+                if (_disposing || entry.Removed || entry.PollingSuspended || entry.Account.IdentityKey is null ||
                     entry.Status.IsRefreshing || entry.Pending is { IsCompleted: false } ||
                     entry.Status.State is UsageState.SignInRequired or UsageState.UpdateRequired) continue;
+                if (entry.Status.IsRetryScheduled)
+                {
+                    if (entry.Status.NextAttemptAt <= now) due.Add(entry.Account.Id);
+                    continue;
+                }
+                if (!entry.Account.AutoRefresh) continue;
                 if (entry.Status.State != UsageState.Ready && entry.Status.NextAttemptAt > now) continue;
                 var resetDue = false;
                 foreach (var window in entry.Status.Snapshot?.Windows ?? [])

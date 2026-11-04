@@ -225,6 +225,8 @@ public sealed class AccountViewModel : ObservableModel
     private UsageState _state = UsageState.SignInRequired;
     private string? _message;
     private bool _refreshing;
+    private bool _retryScheduled;
+    private DateTimeOffset? _nextAttemptAt;
     private string? _progress;
     private bool _canCancelConnection;
     private bool _updatingWindows;
@@ -360,15 +362,28 @@ public sealed class AccountViewModel : ObservableModel
     public bool HasUsageIssue => !IsRefreshing && _state != UsageState.Ready;
     public bool HasStatusIndicator => IsRefreshing || HasUsageIssue;
     public string StatusIcon => IsRefreshing ? "\uE72C" : "\uE7BA";
-    public string Notice => IsRefreshing ? _progress ?? StateLabel : _message ?? (_state switch
+    public string Notice
     {
-        UsageState.SignInRequired => "로그인이 필요합니다.",
-        UsageState.Offline => "오프라인 · 이전 값 표시",
-        UsageState.RateLimited => "조회 제한 · 재시도 대기",
-        UsageState.UpdateRequired => "연결 도구 업데이트 필요",
-        UsageState.Unavailable => "사용량 미제공",
-        _ => ""
-    });
+        get
+        {
+            if (IsRefreshing) return _progress ?? StateLabel;
+            var message = _message ?? (_state switch
+            {
+                UsageState.SignInRequired => "로그인이 필요합니다.",
+                UsageState.Offline => "오프라인 · 이전 값 표시",
+                UsageState.RateLimited => _retryScheduled ? "조회 제한" : "조회 제한 · 재시도 대기",
+                UsageState.UpdateRequired => "연결 도구 업데이트 필요",
+                UsageState.Unavailable => "사용량 미제공",
+                _ => ""
+            });
+            if (!_retryScheduled || _nextAttemptAt is not { } retryAt) return message;
+            var remaining = retryAt - DateTimeOffset.UtcNow;
+            var retry = remaining <= TimeSpan.Zero ? "재시도 대기"
+                : remaining.TotalSeconds < 60 ? $"{Math.Ceiling(remaining.TotalSeconds):0}초 후 재시도"
+                : $"{Math.Ceiling(remaining.TotalMinutes):0}분 후 재시도";
+            return string.IsNullOrWhiteSpace(message) ? retry : $"{message} · {retry}";
+        }
+    }
     public string StateLabel => IsRefreshing ? CanCancelConnection ? "연결 중" : "새로고침 중" : _state switch
     {
         UsageState.Ready => "연결됨", UsageState.SignInRequired => "로그인 필요", UsageState.Offline => "오프라인",
@@ -422,6 +437,8 @@ public sealed class AccountViewModel : ObservableModel
         _state = status.State;
         _message = status.Message;
         _refreshing = status.IsRefreshing;
+        _retryScheduled = status.IsRetryScheduled;
+        _nextAttemptAt = status.NextAttemptAt;
         if (!ReferenceEquals(_snapshot, status.Snapshot))
         {
             _snapshot = status.Snapshot;
@@ -453,6 +470,7 @@ public sealed class AccountViewModel : ObservableModel
         foreach (var window in _compactWindows) if (!Windows.Contains(window)) window.Tick();
         Changed(nameof(PrimaryReset)); Changed(nameof(UpdatedLabel)); Changed(nameof(Accent)); Changed(nameof(StateBrush));
         Changed(nameof(CompactUpdatedLabel)); Changed(nameof(LastCheckedDetail));
+        if (_retryScheduled && !IsRefreshing) { Changed(nameof(Notice)); Changed(nameof(HasNotice)); }
         foreach (var credit in CompactCredits) credit.RefreshDetail();
     }
     private void RaisePrimary()
