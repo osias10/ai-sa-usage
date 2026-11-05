@@ -248,10 +248,16 @@ public sealed class UsageCoordinator : IAsyncDisposable
                 // A login ahead of this queued refresh may have supplied a new Retry-After.
                 if (entry.Removed || entry.ProviderRetryAt > _time.GetUtcNow()) return;
                 SetStatus(entry, s => s with { IsRefreshing = true, Message = "사용량 조회 중" });
+                var provider = _providers[entry.Account.Provider];
+                await using var prepared = provider is IPreparedUsageProvider preparation
+                    ? await preparation.PrepareUsageReadAsync(entry.Account, progress, token).ConfigureAwait(false) : null;
                 await _slots.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
-                    var snapshot = await _providers[entry.Account.Provider].FetchAsync(entry.Account, progress, token).ConfigureAwait(false);
+                    if (entry.Removed) return;
+                    var snapshot = prepared is not null
+                        ? await prepared.FetchAsync(token).ConfigureAwait(false)
+                        : await provider.FetchAsync(entry.Account, progress, token).ConfigureAwait(false);
                     if (snapshot.AccountId != entry.Account.Id || snapshot.Provider != entry.Account.Provider)
                         throw new ProviderException(UsageState.Unavailable, "응답 계정이 일치하지 않습니다.");
                     if (snapshot.State is not (UsageState.Ready or UsageState.Unavailable))
@@ -360,31 +366,47 @@ public sealed class UsageCoordinator : IAsyncDisposable
         await Task.Yield();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _shutdown.Token);
         var token = linked.Token;
+        var sent = false;
+        Exception? failure = null;
         try
         {
             await entry.Gate.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                if (!Eligible()) { completion.TrySetResult(false); return; }
+                if (!Eligible()) return;
                 if (_providers[entry.Account.Provider] is not IResetMessageProvider provider)
                     throw new InvalidOperationException("이 서비스는 자동 메시지를 지원하지 않습니다.");
+                // Download and activation waits must not block unrelated providers' request slots.
+                await using var prepared = provider is IPreparedResetMessageProvider preparation
+                    ? await preparation.PrepareResetMessageAsync(entry.Account, token).ConfigureAwait(false) : null;
                 await _slots.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
+                    // Updating/preparing a tool must finish before consuming the durable one-shot receipt.
+                    if (!Eligible()) return;
+                    if (prepared is not null) await prepared.ValidateAsync(token).ConfigureAwait(false);
                     if (!Eligible() || !await reserveAttempt(entry.Status, token).ConfigureAwait(false))
-                    { completion.TrySetResult(false); return; }
+                        return;
                     token.ThrowIfCancellationRequested();
-                    if (!Eligible()) { completion.TrySetResult(false); return; }
-                    await provider.SendResetMessageAsync(entry.Account, token).ConfigureAwait(false);
-                    completion.TrySetResult(true);
+                    if (!Eligible()) return;
+                    if (prepared is not null) await prepared.SendAsync(token).ConfigureAwait(false);
+                    else await provider.SendResetMessageAsync(entry.Account, token).ConfigureAwait(false);
+                    sent = true;
                 }
                 finally { _slots.Release(); }
             }
             finally { entry.Gate.Release(); }
         }
-        catch (OperationCanceledException error) { completion.TrySetCanceled(error.CancellationToken); }
-        catch (Exception error) { completion.TrySetException(error); }
-        finally { lock (_sync) _operations.Remove(completion.Task); }
+        catch (Exception error) { failure = error; }
+        finally
+        {
+            // Completion also owns prepared-operation disposal and gate release. Callers and
+            // shutdown must not race a still-held runtime lease after the send has finished.
+            if (failure is OperationCanceledException cancelled) completion.TrySetCanceled(cancelled.CancellationToken);
+            else if (failure is not null) completion.TrySetException(failure);
+            else completion.TrySetResult(sent);
+            lock (_sync) _operations.Remove(completion.Task);
+        }
 
         bool Eligible() => !entry.Removed && entry.Account.ResetMessageEnabled &&
             StringComparer.Ordinal.Equals(entry.Account.IdentityKey, expectedIdentity) &&
@@ -452,11 +474,19 @@ public sealed class UsageCoordinator : IAsyncDisposable
     {
         try
         {
-            await RefreshDueAsync(_shutdown.Token).ConfigureAwait(false);
+            QueueDueRefreshes();
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), _time);
             while (await timer.WaitForNextTickAsync(_shutdown.Token).ConfigureAwait(false))
-                await RefreshDueAsync(_shutdown.Token).ConfigureAwait(false);
+                QueueDueRefreshes();
         }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
+    }
+    private void QueueDueRefreshes() => _ = ObserveScheduledBatchAsync();
+    private async Task ObserveScheduledBatchAsync()
+    {
+        // Each account is already single-flight and tracked in _operations for shutdown.
+        // A long tool preparation must not postpone other accounts' later polling ticks.
+        try { await RefreshDueAsync(_shutdown.Token).ConfigureAwait(false); }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested) { }
     }
     private Entry Find(string id) => _entries.TryGetValue(id, out var entry) ? entry : throw new KeyNotFoundException(id);

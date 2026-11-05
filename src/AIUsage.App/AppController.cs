@@ -39,6 +39,7 @@ public sealed partial class AppController : IAsyncDisposable
     private readonly HttpClient? _updateHttp;
     private readonly HttpClient? _downloadHttp;
     private Task _updateInitialization = Task.CompletedTask;
+    private Task _runtimeInitialization = Task.CompletedTask;
     private readonly UpdateInstallation _updateInstallation = new();
     private bool _preparingUpdate;
     private readonly SemaphoreSlim _clickThroughSaveGate = new(1, 1);
@@ -50,6 +51,7 @@ public sealed partial class AppController : IAsyncDisposable
     public MainViewModel ViewModel { get; }
     public bool IsDemo { get; }
     public AppUpdateService? Updates { get; }
+    public IRuntimeToolService RuntimeTools { get; }
     internal Func<Task>? ExitForUpdateAsync { get; set; }
     internal bool UpdateInstallerLaunched { get; private set; }
     public MainWindow? Window { get; set; }
@@ -77,6 +79,7 @@ public sealed partial class AppController : IAsyncDisposable
         _store = store;
         IsDemo = demo;
         _runtime = runtime;
+        RuntimeTools = runtime as IRuntimeToolService ?? new DemoRuntimeToolService();
         _alerts = new UsageAlertEngine(alertState);
         _statistics = new UsageStatistics(statisticsHistory);
         _forecast = new UsageForecastEngine(_statistics.GetForecastHistory(DateTimeOffset.UtcNow));
@@ -196,6 +199,7 @@ public sealed partial class AppController : IAsyncDisposable
         ThemeManager.Apply(Settings.Theme);
         if (!IsDemo)
         {
+            _runtimeInitialization = InitializeRuntimeToolsAsync();
             _coordinator.Start();
             _resetMessageTimer.Start();
             _updateInitialization = Updates!.InitializeAsync(Settings.AutoCheckUpdates,
@@ -627,8 +631,10 @@ public sealed partial class AppController : IAsyncDisposable
         _coordinator.Changed -= CoordinatorChanged;
         _settingsWindow?.Close();
         await _shutdown.CancelAsync();
+        foreach (var kind in Enum.GetValues<ProviderKind>()) RuntimeTools.Cancel(kind);
         await _resetMessageWork;
         try { await _updateInitialization; } catch (OperationCanceledException) { }
+        try { await _runtimeInitialization; } catch (OperationCanceledException) { }
         if (Updates is not null) await Updates.DisposeAsync();
         _updateHttp?.Dispose();
         _downloadHttp?.Dispose();
@@ -636,15 +642,22 @@ public sealed partial class AppController : IAsyncDisposable
         await _coordinator.DisposeAsync();
         // Installation already crossed the durable-save boundary before launching its wizard.
         // Do not introduce another fallible write after handing control to that process.
-        if (!UpdateInstallerLaunched)
+        try
         {
-            await SaveSettingsAsync();
-            await SaveSnapshotsAsync();
-            await SaveAlertStateAsync();
-            await SaveUsageStatisticsAsync();
+            if (!UpdateInstallerLaunched)
+            {
+                await SaveSettingsAsync();
+                await SaveSnapshotsAsync();
+                await SaveAlertStateAsync();
+                await SaveUsageStatisticsAsync();
+            }
         }
-        _runtime?.Dispose();
-        _shutdown.Dispose();
+        finally
+        {
+            if (_runtime is IAsyncDisposable asyncRuntime) await asyncRuntime.DisposeAsync();
+            else _runtime?.Dispose();
+            _shutdown.Dispose();
+        }
     }
 
     private sealed class DemoProvider(ProviderKind kind, IReadOnlyList<UsageSnapshot> snapshots) : IUsageProvider

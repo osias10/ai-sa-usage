@@ -6,38 +6,62 @@ using AIUsage.Core;
 
 namespace AIUsage.Providers;
 
-public sealed partial class CodexUsageProvider : IResetMessageProvider
+public sealed partial class CodexUsageProvider : IResetMessageProvider, IPreparedResetMessageProvider
 {
     public const string ResetMessagePrompt = "Reply with exactly OK. Do not use tools or read any files.";
 
     public async Task SendResetMessageAsync(AccountSettings account, CancellationToken cancellationToken)
+    {
+        await using var prepared = await PrepareResetMessageAsync(account, cancellationToken).ConfigureAwait(false);
+        await prepared.ValidateAsync(cancellationToken).ConfigureAwait(false);
+        await prepared.SendAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IPreparedResetMessage> PrepareResetMessageAsync(AccountSettings account, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (account.Provider != Kind) throw new ArgumentException("Provider mismatch.", nameof(account));
         if (string.IsNullOrWhiteSpace(account.IdentityKey))
             throw new ProviderException(UsageState.SignInRequired, "자동 메시지를 사용하려면 계정을 다시 연결해 주세요.");
 
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(90));
+        var runtime = await AcquireRuntimeAsync(account, null, cancellationToken).ConfigureAwait(false);
         try
         {
-            List<string> mcpServers;
-            await using (var session = await OpenAsync(account, null, deadline.Token).ConfigureAwait(false))
+            ConnectionResult? identity = null;
+            ProcessRequest? request = null;
+            return new PreparedResetMessage(runtime, async token =>
             {
-                var identity = ParseAccount(await session.RequestAsync("account/read", new { refreshToken = false }, deadline.Token).ConfigureAwait(false));
-                ProviderIdentity.EnsureMatches(account, identity.IdentityKey);
-                if (string.IsNullOrWhiteSpace(identity.Plan))
-                    throw new ProviderException(UsageState.Unavailable, "ChatGPT 요금제를 확인하지 못해 메시지를 보내지 않았습니다.");
-                var config = await session.RequestAsync("config/read", new { includeLayers = false, cwd = paths.WorkDirectory }, deadline.Token).ConfigureAwait(false);
-                mcpServers = ReadResetMcpServers(config);
-            }
-            var executable = await runtimes.EnsureAsync(Kind, null, deadline.Token).ConfigureAwait(false);
-            await ExecuteResetMessageAsync(runner, CreateResetMessageRequest(executable, paths, account, mcpServers), deadline.Token).ConfigureAwait(false);
+                if (identity is null || request is null || !string.Equals(account.IdentityKey, identity.IdentityKey, StringComparison.Ordinal))
+                    throw new ProviderException(UsageState.SignInRequired, "로그인 계정이 변경되어 자동 메시지를 보내지 않았습니다.") { IdentityChanged = true };
+                using var sendDeadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+                sendDeadline.CancelAfter(TimeSpan.FromSeconds(90));
+                try { await ExecuteResetMessageAsync(runner, request, sendDeadline.Token).ConfigureAwait(false); }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                { throw new ProviderException(UsageState.Offline, "자동 메시지 응답 시간이 초과되었습니다. 같은 초기화에는 다시 보내지 않습니다."); }
+                catch (IOException)
+                { throw new ProviderException(UsageState.Offline, "Codex 자동 메시지 연결을 확인하지 못했습니다."); }
+            }, async token =>
+            {
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+                deadline.CancelAfter(TimeSpan.FromSeconds(90));
+                try
+                {
+                    await using var session = await OpenAsync(account, runtime, deadline.Token).ConfigureAwait(false);
+                    identity = ParseAccount(await session.RequestAsync("account/read", new { refreshToken = false }, deadline.Token).ConfigureAwait(false));
+                    ProviderIdentity.EnsureMatches(account, identity.IdentityKey);
+                    if (string.IsNullOrWhiteSpace(identity.Plan))
+                        throw new ProviderException(UsageState.Unavailable, "ChatGPT 요금제를 확인하지 못해 메시지를 보내지 않았습니다.");
+                    var config = await session.RequestAsync("config/read", new { includeLayers = false, cwd = paths.WorkDirectory }, deadline.Token).ConfigureAwait(false);
+                    request = CreateResetMessageRequest(runtime.ExecutablePath, paths, account, ReadResetMcpServers(config));
+                    deadline.Token.ThrowIfCancellationRequested();
+                }
+                catch (OperationCanceledException) when (!token.IsCancellationRequested)
+                { throw new ProviderException(UsageState.Offline, "자동 메시지 준비 시간이 초과되었습니다. 메시지는 보내지 않았습니다."); }
+                catch (IOException)
+                { throw new ProviderException(UsageState.Offline, "Codex 자동 메시지 연결을 확인하지 못했습니다."); }
+            });
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { throw new ProviderException(UsageState.Offline, "자동 메시지 응답 시간이 초과되었습니다. 같은 초기화에는 다시 보내지 않습니다."); }
-        catch (IOException)
-        { throw new ProviderException(UsageState.Offline, "Codex 자동 메시지 연결을 확인하지 못했습니다."); }
+        catch { await runtime.DisposeAsync().ConfigureAwait(false); throw; }
     }
 
     internal static List<string> ReadResetMcpServers(JsonElement result)

@@ -3,57 +3,80 @@ using AIUsage.Core;
 
 namespace AIUsage.Providers;
 
-public sealed partial class ClaudeUsageProvider : IResetMessageProvider
+public sealed partial class ClaudeUsageProvider : IResetMessageProvider, IPreparedResetMessageProvider
 {
     public const string ResetMessagePrompt = "Reply with exactly OK.";
 
     public async Task SendResetMessageAsync(AccountSettings account, CancellationToken cancellationToken)
+    {
+        await using var prepared = await PrepareResetMessageAsync(account, cancellationToken).ConfigureAwait(false);
+        await prepared.ValidateAsync(cancellationToken).ConfigureAwait(false);
+        await prepared.SendAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IPreparedResetMessage> PrepareResetMessageAsync(AccountSettings account, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ValidateAccount(account);
         if (string.IsNullOrWhiteSpace(account.IdentityKey))
             throw new ProviderException(UsageState.SignInRequired, "자동 메시지를 사용하려면 계정을 다시 연결해 주세요.");
 
-        var executable = await PrepareAsync(account, null, cancellationToken).ConfigureAwait(false);
-        var identity = await ReadIdentityAsync(executable, account, cancellationToken).ConfigureAwait(false);
-        ProviderIdentity.EnsureMatches(account, identity.IdentityKey);
-        if (string.IsNullOrWhiteSpace(identity.Plan) || string.Equals(identity.Plan, "free", StringComparison.OrdinalIgnoreCase))
-            throw new ProviderException(UsageState.Unavailable, "Claude 구독 요금제를 확인하지 못해 메시지를 보내지 않았습니다.");
+        var runtime = await AcquireRuntimeAsync(account, null, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var executable = runtime.ExecutablePath;
+            ConnectionResult? identity = null;
 
-        // Use the existing isolated subscription profile, but never its customizations or project files.
-        // Bare mode cannot be used here: it deliberately ignores subscription OAuth credentials.
-        var request = Request(executable, account,
-            ["--safe-mode", "--restricted", "-p", ResetMessagePrompt,
-                "--output-format", "json", "--model", "haiku", "--effort", "low",
-                "--tools", "", "--disallowedTools", "*", "--strict-mcp-config",
-                "--no-session-persistence", "--permission-prompts", "none", "--permission-mode", "dontAsk",
-                "--no-chrome", "--disable-slash-commands", "--max-turns", "1",
-                "--system-prompt", "Respond briefly without using tools.",
-                "--settings", "{\"disableAllHooks\":true,\"fastMode\":false,\"forceLoginMethod\":\"claudeai\"}"],
-            TimeSpan.FromSeconds(60));
-        var environment = new Dictionary<string, string?>(request.Environment);
-        foreach (var name in new[]
-        {
-            "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_BETAS", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL",
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_FEDERATION_RULE_ID",
-            "ANTHROPIC_ORGANIZATION_ID", "ANTHROPIC_WORKSPACE_ID", "ANTHROPIC_AWS_API_KEY",
-            "ANTHROPIC_AWS_BASE_URL", "ANTHROPIC_AWS_WORKSPACE_ID", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
-            "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_SIMPLE", "CLAUDE_CODE_EXTRA_BODY",
-            "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_RETRY_WATCHDOG", "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"
-        }) environment[name] = null;
-        environment["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "128";
-        environment["CLAUDE_CODE_MAX_RETRIES"] = "0";
-        environment["MAX_THINKING_TOKENS"] = "0";
-        environment["CLAUDE_CODE_AUTO_CONNECT_IDE"] = "false";
-        environment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = "1";
-        cancellationToken.ThrowIfCancellationRequested();
-        var result = await ProviderProcess.RunAsync(runner, new ProcessRequest
-        {
-            FileName = request.FileName, Arguments = request.Arguments,
-            WorkingDirectory = request.WorkingDirectory, Environment = environment, Timeout = request.Timeout
-        }, cancellationToken).ConfigureAwait(false);
-        ProviderErrors.EnsureSuccess(result);
-        ValidateResetMessageResult(result.StandardOutput);
+            // Use the existing isolated subscription profile, but never its customizations or project files.
+            // Bare mode cannot be used here: it deliberately ignores subscription OAuth credentials.
+            var request = Request(executable, account,
+                ["--safe-mode", "--restricted", "-p", ResetMessagePrompt,
+                    "--output-format", "json", "--model", "haiku", "--effort", "low",
+                    "--tools", "", "--disallowedTools", "*", "--strict-mcp-config",
+                    "--no-session-persistence", "--permission-prompts", "none", "--permission-mode", "dontAsk",
+                    "--no-chrome", "--disable-slash-commands", "--max-turns", "1",
+                    "--system-prompt", "Respond briefly without using tools.",
+                    "--settings", "{\"disableAllHooks\":true,\"fastMode\":false,\"forceLoginMethod\":\"claudeai\"}"],
+                TimeSpan.FromSeconds(60));
+            var environment = new Dictionary<string, string?>(request.Environment);
+            foreach (var name in new[]
+            {
+                "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_BETAS", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL",
+                "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_SMALL_FAST_MODEL", "ANTHROPIC_FEDERATION_RULE_ID",
+                "ANTHROPIC_ORGANIZATION_ID", "ANTHROPIC_WORKSPACE_ID", "ANTHROPIC_AWS_API_KEY",
+                "ANTHROPIC_AWS_BASE_URL", "ANTHROPIC_AWS_WORKSPACE_ID", "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+                "CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_SIMPLE", "CLAUDE_CODE_EXTRA_BODY",
+                "CLAUDE_CODE_EFFORT_LEVEL", "CLAUDE_CODE_RETRY_WATCHDOG", "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE"
+            }) environment[name] = null;
+            environment["CLAUDE_CODE_MAX_OUTPUT_TOKENS"] = "128";
+            environment["CLAUDE_CODE_MAX_RETRIES"] = "0";
+            environment["MAX_THINKING_TOKENS"] = "0";
+            environment["CLAUDE_CODE_AUTO_CONNECT_IDE"] = "false";
+            environment["CLAUDE_CODE_SKIP_PROMPT_HISTORY"] = "1";
+            cancellationToken.ThrowIfCancellationRequested();
+            var preparedRequest = new ProcessRequest
+            {
+                FileName = request.FileName, Arguments = request.Arguments,
+                WorkingDirectory = request.WorkingDirectory, Environment = environment, Timeout = request.Timeout
+            };
+            return new PreparedResetMessage(runtime, async token =>
+            {
+                if (identity is null || !string.Equals(account.IdentityKey, identity.IdentityKey, StringComparison.Ordinal))
+                    throw new ProviderException(UsageState.SignInRequired, "로그인 계정이 변경되어 자동 메시지를 보내지 않았습니다.") { IdentityChanged = true };
+                var result = await ProviderProcess.RunAsync(runner, preparedRequest, token).ConfigureAwait(false);
+                ProviderErrors.EnsureSuccess(result);
+                ValidateResetMessageResult(result.StandardOutput);
+            }, async token =>
+            {
+                await ValidateRuntimeAsync(runtime, account, token).ConfigureAwait(false);
+                identity = await ReadIdentityAsync(executable, account, token).ConfigureAwait(false);
+                ProviderIdentity.EnsureMatches(account, identity.IdentityKey);
+                if (string.IsNullOrWhiteSpace(identity.Plan) || string.Equals(identity.Plan, "free", StringComparison.OrdinalIgnoreCase))
+                    throw new ProviderException(UsageState.Unavailable, "Claude 구독 요금제를 확인하지 못해 메시지를 보내지 않았습니다.");
+                token.ThrowIfCancellationRequested();
+            });
+        }
+        catch { await runtime.DisposeAsync().ConfigureAwait(false); throw; }
     }
 
     private static void ValidateResetMessageResult(string output)

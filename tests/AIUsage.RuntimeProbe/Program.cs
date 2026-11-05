@@ -14,7 +14,7 @@ var root = Path.Combine(repository, ".artifacts", $"runtime-probe-{DateTimeOffse
 Console.WriteLine($"Fresh provisioning directory: {root}");
 var paths = new AppPaths(root);
 Directory.CreateDirectory(paths.WorkDirectory);
-using var manager = new RuntimeManager(paths);
+await using var manager = new RuntimeManager(paths);
 using var cancellation = new CancellationTokenSource(TimeSpan.FromMinutes(15));
 ConsoleCancelEventHandler cancel = (_, e) => { e.Cancel = true; cancellation.Cancel(); };
 Console.CancelKeyPress += cancel;
@@ -23,13 +23,14 @@ try
     await Task.WhenAll(Enum.GetValues<ProviderKind>().Select(async provider =>
     {
         var progress = new ProbeProgress(provider);
-        var executable = await manager.EnsureAsync(provider, progress, cancellation.Token);
+        await using var runtime = await manager.AcquireAsync(provider, progress, cancellation.Token);
+        var executable = runtime.ExecutablePath;
         if (progress.DownloadStarts == 0)
             throw new InvalidOperationException($"{provider}: expected a fresh official download.");
 
         var cacheProgress = new ProbeProgress(provider);
-        var cached = await manager.EnsureAsync(provider, cacheProgress, cancellation.Token);
-        if (cached != executable || cacheProgress.DownloadStarts != 0)
+        await using var cached = await manager.AcquireAsync(provider, cacheProgress, cancellation.Token);
+        if (cached.ExecutablePath != executable || cacheProgress.DownloadStarts != 0)
             throw new InvalidOperationException($"{provider}: cached verification unexpectedly downloaded a replacement.");
 
         // Empty child PATH proves that the provider executable is addressed directly and does

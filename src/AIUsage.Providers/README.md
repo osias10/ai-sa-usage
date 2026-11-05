@@ -2,6 +2,8 @@
 
 The usage adapters invoke the original vendor runtimes provisioned by `AIUsage.Infrastructure`. They do not read browser cookies, copy tokens between accounts, implement private HTTP quota endpoints, or create model turns for usage/credit queries. The widget reads explicit subscription quota and account credit fields separately. Missing values stay unknown; token counts, costs, credits and response prose are never converted into a subscription percentage.
 
+Runtime selection is limited to versions explicitly included in the current application's compatibility catalog. The highest supported numeric version is the update target. Each complete operation holds a runtime lease, including all identity checks, quota/credit reads, and any explicitly enabled reset message. New binaries are verified in separate directories and activated only after in-flight leases finish. Tool preparation waits happen outside the coordinator's two request slots; native validation and requests remain inside them. Reset-message preparation acquires the tool first, then account validation completes before the durable send reservation. A prepared message uses that same executable and cannot be sent twice.
+
 ## Claude
 
 Each widget account has its own `CLAUDE_CONFIG_DIR`. `auth login`, `auth status` and `auth logout` remain owned by Claude. `auth status` must identify a Claude subscription login and confirm the expected configuration directory before polling.

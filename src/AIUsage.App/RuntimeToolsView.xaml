@@ -1,0 +1,92 @@
+<UserControl x:Class="AIUsage.App.RuntimeToolsView"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ UseLayoutRounding="True">
+ <UserControl.Resources>
+  <ResourceDictionary>
+   <ResourceDictionary.MergedDictionaries>
+    <ResourceDictionary Source="Styles/SettingsControls.xaml" />
+   </ResourceDictionary.MergedDictionaries>
+   <Style x:Key="RuntimeStateText" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+    <Style.Triggers>
+     <DataTrigger Binding="{Binding IsBusy}" Value="True"><Setter Property="Foreground" Value="{DynamicResource AccentBrush}" /></DataTrigger>
+     <DataTrigger Binding="{Binding IsError}" Value="True"><Setter Property="Foreground" Value="{DynamicResource WarningBrush}" /></DataTrigger>
+    </Style.Triggers>
+   </Style>
+   <Style x:Key="RuntimeMessageText" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource MutedBrush}" />
+    <Style.Triggers>
+     <DataTrigger Binding="{Binding IsError}" Value="True"><Setter Property="Foreground" Value="{DynamicResource WarningBrush}" /></DataTrigger>
+    </Style.Triggers>
+   </Style>
+  </ResourceDictionary>
+ </UserControl.Resources>
+ <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,23,0,0">
+  <StackPanel>
+   <Grid>
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+    <StackPanel Margin="0,0,16,0" VerticalAlignment="Center">
+     <TextBlock Text="내부 도구" FontSize="13" FontWeight="SemiBold" />
+     <TextBlock Text="사용량 조회에 사용하는 공식 도구입니다." FontSize="11" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,0" TextWrapping="Wrap" />
+    </StackPanel>
+    <Button x:Name="CheckRuntimeToolsButton" Grid.Column="1" Content="버전 확인" Style="{StaticResource SettingsButton}"
+     VerticalAlignment="Top" Click="CheckTools" AutomationProperties.Name="내부 도구 버전 확인" />
+   </Grid>
+   <TextBlock Text="이 AI SA가 지원하는 최고 버전까지 준비합니다. 앱 업데이트 후 필요한 도구는 자동으로 준비됩니다."
+    FontSize="11" Foreground="{DynamicResource SubtleBrush}" Margin="0,10,0,0" TextWrapping="Wrap" />
+   <TextBlock x:Name="RuntimeToolsError" FontSize="11" Foreground="{DynamicResource WarningBrush}" TextWrapping="Wrap"
+    Margin="0,12,0,0" Visibility="Collapsed" AutomationProperties.LiveSetting="Polite" />
+   <ItemsControl x:Name="RuntimeToolsItems" Margin="0,4,0,0">
+    <ItemsControl.ItemTemplate>
+     <DataTemplate>
+      <Border x:Name="RuntimeToolRow" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,0,0,1" Padding="0,17,0,16">
+       <StackPanel>
+        <Grid>
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+         <TextBlock Text="{Binding Name}" FontSize="13" FontWeight="Medium" VerticalAlignment="Center" />
+         <TextBlock x:Name="RuntimeToolState" Grid.Column="1" Text="{Binding StateLabel}" FontSize="11" Style="{StaticResource RuntimeStateText}"
+          Margin="12,0,0,0" VerticalAlignment="Center" />
+        </Grid>
+        <Grid Margin="0,12,0,0">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+         <TextBlock Text="현재 버전" FontSize="10" Foreground="{DynamicResource SubtleBrush}" />
+         <TextBlock Grid.Column="1" Text="AI SA 호환 최고 버전" FontSize="10" Foreground="{DynamicResource SubtleBrush}" />
+         <TextBlock x:Name="RuntimeToolCurrentVersion" Grid.Row="1" Text="{Binding CurrentVersionLabel}" FontSize="12" Margin="0,4,18,0"
+          TextTrimming="CharacterEllipsis" ToolTip="{Binding CurrentVersionLabel}" />
+         <TextBlock x:Name="RuntimeToolSupportedVersion" Grid.Row="1" Grid.Column="1" Text="{Binding SupportedVersionLabel}" FontSize="12" Margin="0,4,0,0"
+          TextTrimming="CharacterEllipsis" ToolTip="{Binding SupportedVersionLabel}" />
+        </Grid>
+        <TextBlock x:Name="RuntimeToolMessage" Text="{Binding Message}" FontSize="11" Style="{StaticResource RuntimeMessageText}"
+         TextWrapping="Wrap" Margin="0,9,0,0" Visibility="{Binding HasMessage, Converter={StaticResource BoolVisibility}}"
+         AutomationProperties.LiveSetting="Polite" />
+        <StackPanel Margin="0,12,0,0" Visibility="{Binding IsBusy, Converter={StaticResource BoolVisibility}}">
+         <ProgressBar x:Name="RuntimeToolProgress" Height="3" Minimum="0" Maximum="100" Value="{Binding ProgressPercent, Mode=OneWay}"
+          IsIndeterminate="{Binding IsIndeterminate}" AutomationProperties.Name="{Binding ProgressAccessibilityLabel}" />
+         <TextBlock x:Name="RuntimeToolProgressLabel" Text="{Binding ProgressLabel}" FontSize="10" Foreground="{DynamicResource MutedBrush}" Margin="0,6,0,0" />
+        </StackPanel>
+        <Grid Margin="0,12,0,0">
+         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+         <TextBlock x:Name="RuntimeToolLastChecked" Text="{Binding LastCheckedLabel}" FontSize="10" Foreground="{DynamicResource SubtleBrush}"
+          VerticalAlignment="Center" Margin="0,0,12,0" TextWrapping="Wrap" ToolTip="{Binding LastCheckedDetail}" />
+         <WrapPanel Grid.Column="1" HorizontalAlignment="Right">
+          <Button x:Name="UpdateRuntimeToolButton" Content="{Binding UpdateLabel}" Style="{StaticResource SettingsButton}"
+           Click="UpdateTool" IsEnabled="{Binding CanUpdate}" Visibility="{Binding ShowUpdate, Converter={StaticResource BoolVisibility}}"
+           AutomationProperties.Name="{Binding UpdateAccessibilityLabel}" MinWidth="70" />
+          <Button x:Name="ReinstallRuntimeToolButton" Content="다시 설치" Style="{StaticResource SettingsGhostButton}" Margin="6,0,0,0"
+           Click="ReinstallTool" IsEnabled="{Binding CanReinstall}" Visibility="{Binding ShowReinstall, Converter={StaticResource BoolVisibility}}"
+           AutomationProperties.Name="{Binding ReinstallAccessibilityLabel}" MinWidth="80" />
+          <Button x:Name="CancelRuntimeToolButton" Content="취소" Style="{StaticResource SettingsGhostButton}"
+           Click="CancelTool" IsEnabled="{Binding CanCancel}" Visibility="{Binding CanCancel, Converter={StaticResource BoolVisibility}}"
+           AutomationProperties.Name="{Binding CancelAccessibilityLabel}" MinWidth="70" />
+         </WrapPanel>
+        </Grid>
+       </StackPanel>
+      </Border>
+     </DataTemplate>
+    </ItemsControl.ItemTemplate>
+   </ItemsControl>
+  </StackPanel>
+ </Border>
+</UserControl>

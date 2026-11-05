@@ -506,6 +506,7 @@
       </WrapPanel>
       <TextBlock x:Name="InstallUpdateHint" Text="파일 검증을 마쳤습니다. 설치 실행을 누르면 AI SA를 닫고 설치 프로그램을 엽니다."
        FontSize="11" Foreground="{DynamicResource SubtleBrush}" TextWrapping="Wrap" Margin="0,8,0,0" Visibility="Collapsed" />
+      <local:RuntimeToolsView x:Name="RuntimeToolsPage" Margin="0,28,0,0" />
       <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="0,24,0,0" Margin="0,28,0,0">
        <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>

@@ -1,41 +1,23 @@
-using System.Collections.Concurrent;
 using System.Net;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using AIUsage.Core;
 
 namespace AIUsage.Infrastructure;
 
 /// <summary>Provisions untouched official binaries in this application's private directory.</summary>
-public sealed class RuntimeManager : IRuntimeManager, IDisposable
+public sealed partial class RuntimeManager : IRuntimeManager, IRuntimeToolService, IDisposable, IAsyncDisposable
 {
     private const long MaximumDownloadBytes = 512L * 1024 * 1024;
-    private static readonly ConcurrentDictionary<string, SemaphoreSlim> InstallLocks = new(StringComparer.OrdinalIgnoreCase);
     private readonly AppPaths _paths;
     private readonly HttpClient _http;
 
-    public RuntimeManager(AppPaths paths)
-    {
-        _paths = paths;
-        _http = new HttpClient(new HttpClientHandler
-        {
-            // Check every redirect before following it, including HTTPS and the target host.
-            AllowAutoRedirect = false,
-            AutomaticDecompression = DecompressionMethods.None
-        }) { Timeout = Timeout.InfiniteTimeSpan };
-        _http.DefaultRequestHeaders.UserAgent.ParseAdd("AIUsageWidget/1.0");
-    }
+    public RuntimeManager(AppPaths paths) : this(paths, null, null) { }
 
-    public async Task<string> EnsureAsync(ProviderKind provider, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+    private async Task<string> DownloadNewAsync(RuntimeRelease release, string directory,
+        IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
-        if (!OperatingSystem.IsWindows() || RuntimeInformation.OSArchitecture != Architecture.X64)
-            throw new ProviderException(UsageState.UpdateRequired, "Windows x64에서 지원하는 실행 파일입니다.");
-
-        var release = RuntimeCatalog.Get(provider);
-        var directory = Path.GetFullPath(Path.Combine(_paths.Runtimes, provider.ToString().ToLowerInvariant(), release.Version));
+        var provider = release.Provider;
         var target = Path.Combine(directory, release.FileName);
-        var installLock = InstallLocks.GetOrAdd(directory, _ => new SemaphoreSlim(1, 1));
-        await installLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             progress?.Report(new($"{provider} 실행 파일 확인 중"));
@@ -57,7 +39,7 @@ public sealed class RuntimeManager : IRuntimeManager, IDisposable
                         throw new ProviderException(UsageState.UpdateRequired, "공식 체크섬과 일치하지 않아 다운로드한 실행 파일을 사용하지 않았습니다. 다시 시도해 주세요.");
 
                     // A .partial file is never returned. The rename happens only after a complete hash check.
-                    File.Move(temporaryPath, target, overwrite: true);
+                    File.Move(temporaryPath, target);
                     progress?.Report(new($"{provider} 준비 완료", 100));
                     return target;
                 }
@@ -104,7 +86,6 @@ public sealed class RuntimeManager : IRuntimeManager, IDisposable
         {
             throw new ProviderException(UsageState.Unavailable, "앱의 실행 파일 폴더에 접근할 수 없습니다.", inner: ex);
         }
-        finally { installLock.Release(); }
     }
 
     private async Task DownloadAsync(RuntimeRelease release, string destination, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
@@ -163,6 +144,7 @@ public sealed class RuntimeManager : IRuntimeManager, IDisposable
                 if (!delay.HasValue && response.Headers.RetryAfter?.Date is { } retryDate)
                     delay = retryDate - DateTimeOffset.UtcNow;
                 if (delay < TimeSpan.Zero) delay = TimeSpan.Zero;
+                RecordProviderRetryAfter(release.Provider, delay);
                 var status = response.StatusCode;
                 response.Dispose();
                 throw new RetryableDownloadException(status, delay);
@@ -217,8 +199,6 @@ public sealed class RuntimeManager : IRuntimeManager, IDisposable
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
     }
-
-    public void Dispose() => _http.Dispose();
 
     private sealed class RetryableDownloadException(HttpStatusCode statusCode, TimeSpan? retryAfter) : Exception("Official download is temporarily unavailable.")
     {

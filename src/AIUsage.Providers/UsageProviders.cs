@@ -4,13 +4,14 @@ using AIUsage.Core;
 
 namespace AIUsage.Providers;
 
-public sealed partial class ClaudeUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider
+public sealed partial class ClaudeUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider, IPreparedUsageProvider
 {
     public ProviderKind Kind => ProviderKind.Claude;
 
     public async Task<ConnectionResult> ConnectAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
-        var executable = await PrepareAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        await using var runtime = await PrepareAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        var executable = runtime.ExecutablePath;
         progress?.Report(new("Claude 공식 로그인 화면을 여는 중…"));
         var result = await BrowserCliLogin.RunAsync(Request(executable, account, ["auth", "login"], TimeSpan.FromMinutes(5)), Kind, login, progress, cancellationToken).ConfigureAwait(false);
         ProviderErrors.EnsureSuccess(result);
@@ -19,7 +20,20 @@ public sealed partial class ClaudeUsageProvider(AppPaths paths, IRuntimeManager 
 
     public async Task<UsageSnapshot> FetchAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
-        var executable = await PrepareAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        await using var prepared = await PrepareUsageReadAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        return await prepared.FetchAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IPreparedUsageRead> PrepareUsageReadAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+    {
+        var runtime = await AcquireRuntimeAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        return new PreparedUsageRead(runtime, token => FetchUsageAsync(runtime, account, progress, token));
+    }
+
+    private async Task<UsageSnapshot> FetchUsageAsync(RuntimeLease runtime, AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+    {
+        await ValidateRuntimeAsync(runtime, account, cancellationToken).ConfigureAwait(false);
+        var executable = runtime.ExecutablePath;
         var identity = await ReadIdentityAsync(executable, account, cancellationToken).ConfigureAwait(false);
         ProviderIdentity.EnsureMatches(account, identity.IdentityKey);
         progress?.Report(new("Claude 구독 사용량을 확인하는 중…"));
@@ -31,23 +45,40 @@ public sealed partial class ClaudeUsageProvider(AppPaths paths, IRuntimeManager 
 
     public async Task DisconnectAsync(AccountSettings account, CancellationToken cancellationToken)
     {
-        var executable = await runtimes.EnsureAsync(Kind, null, cancellationToken).ConfigureAwait(false);
+        ValidateAccount(account);
+        await using var runtime = await runtimes.AcquireAsync(Kind, null, cancellationToken).ConfigureAwait(false);
+        var executable = runtime.ExecutablePath;
         var result = await ProviderProcess.RunAsync(runner, Request(executable, account, ["auth", "logout"], TimeSpan.FromSeconds(30)), cancellationToken).ConfigureAwait(false);
         ProviderErrors.EnsureSuccess(result);
     }
 
-    private async Task<string> PrepareAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
+    private async Task<RuntimeLease> PrepareAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
     {
+        var runtime = await AcquireRuntimeAsync(account, progress, token).ConfigureAwait(false);
+        try
+        {
+            await ValidateRuntimeAsync(runtime, account, token).ConfigureAwait(false);
+            return runtime;
+        }
+        catch { await runtime.DisposeAsync().ConfigureAwait(false); throw; }
+    }
+
+    private async Task<RuntimeLease> AcquireRuntimeAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
+    {
+        token.ThrowIfCancellationRequested();
         ValidateAccount(account);
         Directory.CreateDirectory(paths.ProfileDirectory(account));
         Directory.CreateDirectory(paths.WorkDirectory);
-        var executable = await runtimes.EnsureAsync(Kind, progress, token).ConfigureAwait(false);
-        var version = await ProviderProcess.RunAsync(runner, Request(executable, account, ["--version"], TimeSpan.FromSeconds(15)), token).ConfigureAwait(false);
+        return await runtimes.AcquireAsync(Kind, progress, token).ConfigureAwait(false);
+    }
+
+    private async Task ValidateRuntimeAsync(RuntimeLease runtime, AccountSettings account, CancellationToken token)
+    {
+        var version = await ProviderProcess.RunAsync(runner, Request(runtime.ExecutablePath, account, ["--version"], TimeSpan.FromSeconds(15)), token).ConfigureAwait(false);
         ProviderErrors.EnsureSuccess(version);
         var match = VersionPattern().Match(version.StandardOutput);
         if (!match.Success || !Version.TryParse(match.Value, out var parsed) || parsed < new Version(2, 1, 277))
             throw new ProviderException(UsageState.UpdateRequired, "Claude 사용량 조회에는 2.1.277 이상의 연결 구성요소가 필요합니다.");
-        return executable;
     }
 
     private async Task<ConnectionResult> ReadIdentityAsync(string executable, AccountSettings account, CancellationToken token)
@@ -80,9 +111,10 @@ public sealed partial class ClaudeUsageProvider(AppPaths paths, IRuntimeManager 
     [GeneratedRegex(@"\d+\.\d+\.\d+", RegexOptions.CultureInvariant)] private static partial Regex VersionPattern();
 }
 
-public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider
+public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider, IPreparedUsageProvider
 {
     public ProviderKind Kind => ProviderKind.Codex;
+    internal Func<ProcessRequest, ICodexRpcConnection> OpenRpcConnection { get; init; } = request => new NativeCodexRpcConnection(request);
 
     public async Task<ConnectionResult> ConnectAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
@@ -90,7 +122,8 @@ public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager r
         timeout.CancelAfter(TimeSpan.FromMinutes(5));
         try
         {
-            await using var session = await OpenAsync(account, progress, timeout.Token).ConfigureAwait(false);
+            await using var runtime = await AcquireRuntimeAsync(account, progress, timeout.Token).ConfigureAwait(false);
+            await using var session = await OpenAsync(account, runtime, timeout.Token).ConfigureAwait(false);
             progress?.Report(new("ChatGPT 공식 로그인 화면을 여는 중…"));
             var result = await session.RequestAsync("account/login/start", new { type = "chatgpt" }, timeout.Token).ConfigureAwait(false);
             var loginId = ProviderJson.String(result, "loginId") ?? throw ProviderJson.Unsupported();
@@ -111,11 +144,23 @@ public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager r
 
     public async Task<UsageSnapshot> FetchAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
+        await using var prepared = await PrepareUsageReadAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        return await prepared.FetchAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IPreparedUsageRead> PrepareUsageReadAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+    {
+        var runtime = await AcquireRuntimeAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        return new PreparedUsageRead(runtime, token => FetchUsageAsync(runtime, account, progress, token));
+    }
+
+    private async Task<UsageSnapshot> FetchUsageAsync(RuntimeLease runtime, AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+    {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(75));
         try
         {
-            await using var session = await OpenAsync(account, progress, timeout.Token).ConfigureAwait(false);
+            await using var session = await OpenAsync(account, runtime, timeout.Token).ConfigureAwait(false);
             var identity = ParseAccount(await session.RequestAsync("account/read", new { refreshToken = false }, timeout.Token).ConfigureAwait(false));
             ProviderIdentity.EnsureMatches(account, identity.IdentityKey);
             progress?.Report(new("Codex 구독 사용량을 확인하는 중…"));
@@ -133,7 +178,8 @@ public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager r
         timeout.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
-            await using var session = await OpenAsync(account, null, timeout.Token).ConfigureAwait(false);
+            await using var runtime = await AcquireRuntimeAsync(account, null, timeout.Token).ConfigureAwait(false);
+            await using var session = await OpenAsync(account, runtime, timeout.Token).ConfigureAwait(false);
             await session.RequestAsync("account/logout", new { }, timeout.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
@@ -150,19 +196,24 @@ public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager r
         return new(ProviderIdentity.Create(ProviderKind.Codex, id), email, ProviderJson.String(account, "planType"));
     }
 
-    private async Task<CodexRpcSession> OpenAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
+    private async Task<RuntimeLease> AcquireRuntimeAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         if (account.Provider != Kind) throw new ArgumentException("Provider mismatch.", nameof(account));
         Directory.CreateDirectory(paths.ProfileDirectory(account));
         Directory.CreateDirectory(paths.WorkDirectory);
-        var executable = await runtimes.EnsureAsync(Kind, progress, token).ConfigureAwait(false);
+        return await runtimes.AcquireAsync(Kind, progress, token).ConfigureAwait(false);
+    }
+
+    private async Task<ICodexRpcConnection> OpenAsync(AccountSettings account, RuntimeLease runtime, CancellationToken token)
+    {
         _ = runner; // Shared one-shot runner is intentionally not used for duplex JSON-RPC.
-        CodexRpcSession? session = null;
+        ICodexRpcConnection? session = null;
         try
         {
-            session = new(new ProcessRequest
+            session = OpenRpcConnection(new ProcessRequest
             {
-                FileName = executable,
+                FileName = runtime.ExecutablePath,
                 Arguments = ["-c", "cli_auth_credentials_store=\"keyring\"", "app-server", "--listen", "stdio://"],
                 WorkingDirectory = paths.WorkDirectory, Environment = ProviderProcess.EnvironmentFor(Kind, paths.ProfileDirectory(account))
             });
@@ -177,7 +228,7 @@ public sealed partial class CodexUsageProvider(AppPaths paths, IRuntimeManager r
     }
 }
 
-public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider
+public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeManager runtimes, IProcessRunner runner, ILoginInteraction login) : IUsageProvider, IPreparedUsageProvider
 {
     public ProviderKind Kind => ProviderKind.Antigravity;
     public const string SupportedRuntimeVersion = "1.3.1";
@@ -187,10 +238,12 @@ public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeMan
 
     public async Task<ConnectionResult> ConnectAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
+        await using var runtime = await AcquireRuntimeAsync(account, progress, cancellationToken).ConfigureAwait(false);
         await CurrentAccountGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var executable = await PrepareAsync(account, progress, cancellationToken).ConfigureAwait(false);
+            await ValidateRuntimeAsync(runtime, account, cancellationToken).ConfigureAwait(false);
+            var executable = runtime.ExecutablePath;
             progress?.Report(new("Antigravity 현재 로그인 계정을 연결하는 중…"));
             // Official CLI owns Google OAuth and the OS keyring. No token copy or browser-cookie access.
             // The version-pinned vendor auth action exits after login, without creating an agent turn.
@@ -207,10 +260,23 @@ public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeMan
 
     public async Task<UsageSnapshot> FetchAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
     {
+        await using var prepared = await PrepareUsageReadAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        return await prepared.FetchAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IPreparedUsageRead> PrepareUsageReadAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+    {
+        var runtime = await AcquireRuntimeAsync(account, progress, cancellationToken).ConfigureAwait(false);
+        return new PreparedUsageRead(runtime, token => FetchUsageAsync(runtime, account, progress, token));
+    }
+
+    private async Task<UsageSnapshot> FetchUsageAsync(RuntimeLease runtime, AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+    {
         await CurrentAccountGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var executable = await PrepareAsync(account, progress, cancellationToken).ConfigureAwait(false);
+            await ValidateRuntimeAsync(runtime, account, cancellationToken).ConfigureAwait(false);
+            var executable = runtime.ExecutablePath;
             var before = await ReadIdentityAsync(executable, account, cancellationToken).ConfigureAwait(false);
             ProviderIdentity.EnsureMatches(account, before.IdentityKey);
             progress?.Report(new("Antigravity 사용량을 확인하는 중…"));
@@ -264,16 +330,20 @@ public sealed partial class AntigravityUsageProvider(AppPaths paths, IRuntimeMan
         }
     }
 
-    private async Task<string> PrepareAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
+    private async Task<RuntimeLease> AcquireRuntimeAsync(AccountSettings account, IProgress<ProviderProgress>? progress, CancellationToken token)
     {
+        token.ThrowIfCancellationRequested();
         if (account.Provider != Kind) throw new ArgumentException("Provider mismatch.", nameof(account));
         Directory.CreateDirectory(paths.WorkDirectory);
-        var executable = await runtimes.EnsureAsync(Kind, progress, token).ConfigureAwait(false);
-        var result = await ProviderProcess.RunAsync(runner, Request(executable, account, ["--version"], TimeSpan.FromSeconds(15)), token).ConfigureAwait(false);
+        return await runtimes.AcquireAsync(Kind, progress, token).ConfigureAwait(false);
+    }
+
+    private async Task ValidateRuntimeAsync(RuntimeLease runtime, AccountSettings account, CancellationToken token)
+    {
+        var result = await ProviderProcess.RunAsync(runner, Request(runtime.ExecutablePath, account, ["--version"], TimeSpan.FromSeconds(15)), token).ConfigureAwait(false);
         ProviderErrors.EnsureSuccess(result);
         if (VersionPattern().Match(result.StandardOutput).Value != SupportedRuntimeVersion)
             throw new ProviderException(UsageState.UpdateRequired, "Antigravity 연결 구성요소의 버전이 호환되지 않습니다. 앱을 업데이트해 주세요.");
-        return executable;
     }
 
     private async Task<ConnectionResult> ReadIdentityAsync(string executable, AccountSettings account, CancellationToken token)

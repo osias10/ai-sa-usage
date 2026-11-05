@@ -109,6 +109,8 @@ public interface IUsageProvider
 public interface IRuntimeManager
 {
     Task<string> EnsureAsync(ProviderKind provider, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken);
+    async Task<RuntimeLease> AcquireAsync(ProviderKind provider, IProgress<ProviderProgress>? progress, CancellationToken cancellationToken)
+        => new(await EnsureAsync(provider, progress, cancellationToken).ConfigureAwait(false));
 }
 
 public interface ILoginInteraction

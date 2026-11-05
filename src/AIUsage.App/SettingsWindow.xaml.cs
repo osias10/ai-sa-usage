@@ -60,6 +60,7 @@ public partial class SettingsWindow : Window
         _updateRetryTimer.Tick += UpdateRetryTimerTick;
         InitializeComponent();
         StatisticsPage.Initialize(controller);
+        RuntimeToolsPage.Initialize(controller);
         AddHandler(TextBox.TextChangedEvent, new TextChangedEventHandler(TrackTextEdit));
         DataContext = controller.ViewModel;
         AddAccountExpander.IsExpanded = controller.ViewModel.IsEmpty;
@@ -92,6 +93,7 @@ public partial class SettingsWindow : Window
         Closed += (_, _) =>
         {
             _windowClosed = true;
+            RuntimeToolsPage.Dispose();
             _transparencySaveTimer.Stop();
             _transparencySaveTimer.Tick -= TransparencySaveTimerTick;
             _updateRetryTimer.Stop();
