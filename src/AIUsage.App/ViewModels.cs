@@ -227,6 +227,7 @@ public sealed class AccountViewModel : ObservableModel
     private bool _refreshing;
     private bool _retryScheduled;
     private bool _partialResponse;
+    private bool _showingRetainedSnapshot;
     private DateTimeOffset? _nextAttemptAt;
     private string? _progress;
     private bool _canCancelConnection;
@@ -368,7 +369,7 @@ public sealed class AccountViewModel : ObservableModel
     {
         get
         {
-            if (IsRefreshing) return _progress ?? StateLabel;
+            if (IsRefreshing) return RetainedNotice(_progress ?? StateLabel);
             var message = _message ?? (_state switch
             {
                 UsageState.SignInRequired => "로그인이 필요합니다.",
@@ -378,6 +379,7 @@ public sealed class AccountViewModel : ObservableModel
                 UsageState.Unavailable => "사용량 미제공",
                 _ => ""
             });
+            message = RetainedNotice(message);
             if (!_retryScheduled || _nextAttemptAt is not { } retryAt) return message;
             var remaining = retryAt - DateTimeOffset.UtcNow;
             var retry = remaining <= TimeSpan.Zero ? "재시도 대기"
@@ -386,6 +388,8 @@ public sealed class AccountViewModel : ObservableModel
             return string.IsNullOrWhiteSpace(message) ? retry : $"{message} · {retry}";
         }
     }
+    private string RetainedNotice(string message) => !_showingRetainedSnapshot ? message
+        : string.IsNullOrWhiteSpace(message) ? "이전 값 표시" : $"{message} · 이전 값 표시";
     public string StateLabel => IsRefreshing ? CanCancelConnection ? "연결 중" : "새로고침 중" : _state switch
     {
         UsageState.Ready => "연결됨", UsageState.SignInRequired => "로그인 필요", UsageState.Offline => "오프라인",
@@ -445,11 +449,13 @@ public sealed class AccountViewModel : ObservableModel
         _message = status.Message;
         _refreshing = status.IsRefreshing;
         _retryScheduled = status.IsRetryScheduled;
-        _partialResponse = status.IsPartialResponse;
+        _partialResponse = status.IsPartialResponse && status.RetainedSnapshot is null;
+        _showingRetainedSnapshot = status.RetainedSnapshot is not null;
         _nextAttemptAt = status.NextAttemptAt;
-        if (!ReferenceEquals(_snapshot, status.Snapshot))
+        var displaySnapshot = status.DisplaySnapshot;
+        if (!ReferenceEquals(_snapshot, displaySnapshot))
         {
-            _snapshot = status.Snapshot;
+            _snapshot = displaySnapshot;
             _updatingWindows = true;
             try
             {
@@ -490,9 +496,14 @@ public sealed class AccountViewModel : ObservableModel
     private void RebuildCompactWindows(bool persistMigration = true)
     {
         _pendingWidgetSettingsChange |= UsageFormatting.EnsureWidgetWindows(Settings, _snapshot);
-        _compactWindows = UsageFormatting.SelectCompactWindows(Settings, _snapshot)
-            .Select(source => Windows.FirstOrDefault(window => window.Source == source) ?? CreateUsageWindow(source)).ToArray();
-        Changed(nameof(CompactWindows));
+        var compactWindows = UsageFormatting.SelectCompactWindows(Settings, _snapshot)
+            .Select(source => Windows.FirstOrDefault(window => window.Source == source)
+                ?? _compactWindows.FirstOrDefault(window => window.Source == source) ?? CreateUsageWindow(source)).ToArray();
+        if (!_compactWindows.SequenceEqual(compactWindows))
+        {
+            _compactWindows = compactWindows;
+            Changed(nameof(CompactWindows));
+        }
         RebuildWidgetWindowOptions();
         RebuildUsageAlerts();
         if (persistMigration && _pendingWidgetSettingsChange)

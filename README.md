@@ -10,6 +10,8 @@ Windows 11 x64 · Desktop widget & system tray · 0.4.12 (stable)
 
 **Account credits, automatic retries, and clearer missing-usage status:** [Download 0.4.12](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.12), or check for updates in **Settings → Info**. Pre-release updates do not need to be enabled.
 
+**Try 0.4.13-beta.1:** Keep the last complete usage values, gauges, and check time visible during refreshes and incomplete responses. Errors and retries remain visible; a complete response updates the readings together. [Download the preview](https://github.com/osias10/ai-sa-usage/releases/tag/v0.4.13-beta.1), or enable **Settings → Info → 프리릴리스 업데이트 받기** and check for updates. The latest stable release remains 0.4.12.
+
 Failed usage refreshes retry after 30 seconds, with repeated failures increasing the delay up to 15 minutes. Failed manual refreshes also retry when periodic refresh is off. Provider cooldowns take priority; sign-in or tool-update requirements stop retries. Missing selected limits, including Claude session and weekly usage, now show an issue and retry instead of silently remaining at `—`. Account notices and widget tooltips show the retry countdown.
 
 See Codex credit balances and reset credits, Antigravity remaining credits, and Claude extra-usage spending and monthly limits when provided. Credits appear on the account page; enable **위젯에 크레딧 표시** in each account's settings to show them in the widget too (off by default). Real account credit values have not yet been compared with the providers' usage pages.

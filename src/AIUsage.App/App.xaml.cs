@@ -99,6 +99,7 @@ public partial class App : Application
                 await VerifyStatusIndicatorsAsync(window, settings, claude);
                 await VerifyRefreshRetryAsync(window, settings, claude);
                 await VerifyPartialUsageAsync(window, settings, claude);
+                await VerifyRetainedRefreshAsync(window, settings, claude);
                 await VerifyResetAlertSettingsAsync(settings, claude);
                 await VerifyResetMessageSettingsAsync(settings);
                 await VerifyForecastAsync(window, settings, claude);

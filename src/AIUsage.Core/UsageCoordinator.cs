@@ -1,7 +1,12 @@
 namespace AIUsage.Core;
 
 public sealed record AccountUsageStatus(string AccountId, UsageSnapshot? Snapshot, UsageState State,
-    string? Message, bool IsRefreshing, DateTimeOffset? NextAttemptAt, bool IsRetryScheduled = false, bool IsPartialResponse = false);
+    string? Message, bool IsRefreshing, DateTimeOffset? NextAttemptAt, bool IsRetryScheduled = false, bool IsPartialResponse = false,
+    UsageSnapshot? RetainedSnapshot = null)
+{
+    // Keep the response authoritative for retries/statistics while rendering one consistent prior result.
+    public UsageSnapshot? DisplaySnapshot => RetainedSnapshot ?? Snapshot;
+}
 public sealed class AccountUsageChangedEventArgs(AccountUsageStatus status) : EventArgs
 {
     public AccountUsageStatus Status { get; } = status;
@@ -113,6 +118,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
                         Snapshot = snapshot with { State = UsageState.Unavailable, Message = issue },
                         State = UsageState.Unavailable, Message = issue,
                         IsRetryScheduled = account.IdentityKey is not null, IsPartialResponse = true,
+                        RetainedSnapshot = entry.LastCompleteSnapshot,
                         NextAttemptAt = _time.GetUtcNow().Add(entry.RetryDelay)
                     };
                 }
@@ -180,6 +186,7 @@ public sealed class UsageCoordinator : IAsyncDisposable
                     entry.PollingSuspended = false;
                     entry.ResetRequests.Clear();
                     entry.Status = entry.Status with { Snapshot = changedIdentity ? null : entry.Status.Snapshot,
+                        RetainedSnapshot = changedIdentity ? null : entry.Status.RetainedSnapshot,
                         State = UsageState.Ready, Message = null, NextAttemptAt = null, IsRetryScheduled = false, IsPartialResponse = false };
                 }
             }
@@ -280,7 +287,8 @@ public sealed class UsageCoordinator : IAsyncDisposable
                         entry.ResetRequests.IntersectWith(keys);
                     }
                     SetStatus(entry, s => s with { Snapshot = snapshot, State = UsageState.Ready, Message = null,
-                        NextAttemptAt = _time.GetUtcNow().AddMinutes(entry.Account.RefreshMinutes), IsRetryScheduled = false, IsPartialResponse = false });
+                        NextAttemptAt = _time.GetUtcNow().AddMinutes(entry.Account.RefreshMinutes), IsRetryScheduled = false,
+                        IsPartialResponse = false, RetainedSnapshot = null });
                 }
                 finally { _slots.Release(); }
             }
@@ -315,6 +323,8 @@ public sealed class UsageCoordinator : IAsyncDisposable
             entry.Status = status = entry.Status with
             {
                 State = state, Snapshot = providerError?.IdentityChanged == true ? null : partialSnapshot ?? entry.Status.Snapshot,
+                RetainedSnapshot = providerError?.IdentityChanged == true ? null : partialSnapshot is not null
+                    ? entry.LastCompleteSnapshot : entry.Status.RetainedSnapshot,
                 Message = providerError?.Message ?? "연결을 확인하지 못했습니다.",
                 NextAttemptAt = shouldRetry ? retryAt : null, IsRetryScheduled = shouldRetry, IsPartialResponse = partialSnapshot is not null
             };
